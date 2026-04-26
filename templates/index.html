@@ -410,10 +410,8 @@ async function pollUntilReady(maxWait=300){
 
 // ─── 初回ロード ───
 async function initialLoad(){
-  const ov  = document.getElementById('loadingOverlay');
-  const btn = document.getElementById('btnRefresh');
+  const ov = document.getElementById('loadingOverlay');
   ov.classList.add('show');
-  btn.disabled = true;
   try{
     const data = await pollUntilReady(300);
     renderAll(data);
@@ -421,7 +419,6 @@ async function initialLoad(){
     document.getElementById('stocksGrid').innerHTML='<div class="empty">データ取得失敗。サーバーを確認してください。</div>';
   }finally{
     ov.classList.remove('show');
-    btn.disabled = false;
   }
 }
 
