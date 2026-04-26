@@ -8,6 +8,9 @@ import numpy as np
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
+import json
+import os
+import time
 
 app = Flask(__name__)
 
@@ -378,7 +381,39 @@ def get_news():
 # ══════════════════════════════════════════════════════
 #  並列データ取得
 # ══════════════════════════════════════════════════════
+CACHE_FILE = "data_cache.json"
 _cache = {"recommendations": None, "themes": None, "news": None, "last_update": None, "loading": False}
+
+# ══════════════════════════════════════════════════════
+#  ファイルキャッシュ（サーバー再起動対応）
+# ══════════════════════════════════════════════════════
+def save_cache_to_file():
+    try:
+        with open(CACHE_FILE, "w", encoding="utf-8") as f:
+            json.dump({
+                "recommendations": _cache["recommendations"],
+                "themes": _cache["themes"],
+                "news": _cache["news"],
+                "last_update": _cache["last_update"],
+            }, f, ensure_ascii=False)
+        print("[INFO] キャッシュをファイルに保存しました")
+    except Exception as e:
+        print(f"[WARN] キャッシュ保存失敗: {e}")
+
+def load_cache_from_file():
+    try:
+        if os.path.exists(CACHE_FILE):
+            with open(CACHE_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            _cache["recommendations"] = data.get("recommendations")
+            _cache["themes"] = data.get("themes")
+            _cache["news"] = data.get("news")
+            _cache["last_update"] = data.get("last_update")
+            print(f"[INFO] キャッシュ読み込み完了（{_cache['last_update']}）")
+            return True
+    except Exception as e:
+        print(f"[WARN] キャッシュ読み込み失敗: {e}")
+    return False
 
 def refresh_data():
     if _cache["loading"]: return
@@ -446,6 +481,7 @@ def refresh_data():
 
         _cache["last_update"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         print(f"[INFO] 完了: {_cache['last_update']}")
+        save_cache_to_file()
     except Exception as e:
         print(f"[ERROR] refresh_data: {e}")
         import traceback; traceback.print_exc()
@@ -461,8 +497,12 @@ def index():
 
 @app.route("/api/data")
 def api_data():
-    if _cache["loading"]: return jsonify({"loading": True})
-    if not _cache["recommendations"]: refresh_data()
+    # キャッシュなし かつ 取得中でもない → バックグラウンドで取得開始
+    if not _cache["recommendations"] and not _cache["loading"]:
+        threading.Thread(target=refresh_data, daemon=True).start()
+    if _cache["loading"] and not _cache["recommendations"]:
+        return jsonify({"loading": True})
+    # キャッシュあればすぐ返す（取得中でも古いデータを返す）
     return jsonify({"recommendations": _cache["recommendations"], "themes": _cache["themes"],
                     "news": _cache["news"], "last_update": _cache["last_update"], "loading": False})
 
@@ -484,11 +524,31 @@ def api_chart(ticker):
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-if __name__ == "__main__":
+def background_scheduler():
+    """60分ごとに自動データ更新"""
+    while True:
+        time.sleep(60 * 60)
+        print("[SCHEDULER] 定期更新開始...")
+        refresh_data()
+
+def startup():
     print("=" * 52)
     print("  📈 株式おすすめアプリ v3 起動中（東証専用）")
     print(f"  分析対象: {sum(len(v['stocks']) for v in SECTORS.values())} 銘柄")
-    print("  http://localhost:5000  をブラウザで開いてください")
     print("=" * 52)
-    threading.Thread(target=refresh_data, daemon=True).start()
+    # まずファイルキャッシュから読み込む（即座に提供できるように）
+    if load_cache_from_file():
+        print("[INFO] キャッシュから即座にデータを提供します")
+        # バックグラウンドで最新データを取得
+        threading.Thread(target=refresh_data, daemon=True).start()
+    else:
+        print("[INFO] キャッシュなし → 初回データ取得を開始します")
+        threading.Thread(target=refresh_data, daemon=True).start()
+    # 定期更新スケジューラー起動
+    threading.Thread(target=background_scheduler, daemon=True).start()
+
+startup()
+
+if __name__ == "__main__":
+    print("  http://localhost:5000  をブラウザで開いてください")
     app.run(host="0.0.0.0", port=5000, debug=False)
