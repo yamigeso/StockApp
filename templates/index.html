@@ -18,40 +18,14 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI','Hiragino San
 .nav-tab.active{background:var(--accent);color:#0d1117}
 .nav-right{display:flex;align-items:center;gap:12px}
 .last-upd{font-size:11px;color:var(--text2)}
-.btn-refresh{background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:6px 14px;border-radius:8px;cursor:pointer;font-size:13px;transition:.2s}
-.btn-refresh:hover{border-color:var(--accent);color:var(--accent)}
-.btn-refresh:disabled{opacity:.4;cursor:not-allowed}
 /* PAGES */
 .page{display:none}.page.active{display:block}
 /* P1 LAYOUT */
-.p1-layout{display:grid;grid-template-columns:320px 1fr;height:calc(100vh - 56px)}
-.news-col{background:var(--bg2);border-right:1px solid var(--border);overflow-y:auto;padding:18px 14px}
-.main-col{overflow-y:auto;padding:20px 24px}
+.p1-layout{display:block;height:calc(100vh - 56px);overflow-y:auto}
+.main-col{padding:20px 24px}
 /* SEC TITLE */
 .sec-title{font-size:11px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:var(--text2);margin-bottom:12px;display:flex;align-items:center;gap:8px}
 .sec-title::after{content:'';flex:1;height:1px;background:var(--border)}
-/* NEWS */
-.news-item{background:var(--bg3);border:1px solid var(--border);border-radius:var(--r);padding:11px;margin-bottom:9px;text-decoration:none;display:block;color:inherit;transition:.2s}
-.news-item:hover{border-color:var(--accent);transform:translateY(-1px)}
-.ni-top{display:flex;justify-content:space-between;margin-bottom:5px}
-.ni-pub,.ni-time{font-size:11px;color:var(--text2)}
-.ni-title{font-size:13px;font-weight:500;line-height:1.45;margin-bottom:7px}
-.ni-tags{display:flex;flex-wrap:wrap;gap:4px;align-items:center}
-.tag{font-size:10px;padding:2px 7px;border-radius:20px;border:1px solid;font-weight:600}
-.tag-AI・半導体{color:#e0c080;border-color:#e0c080}
-.tag-テクノロジー{color:var(--accent);border-color:var(--accent)}
-.tag-暗号資産{color:#f7931a;border-color:#f7931a}
-.tag-通信・5G{color:#56d8e4;border-color:#56d8e4}
-.tag-EV・自動車{color:var(--orange);border-color:var(--orange)}
-.tag-ヘルスケア{color:var(--green);border-color:var(--green)}
-.tag-金融・フィンテック{color:var(--purple);border-color:var(--purple)}
-.tag-エネルギー{color:var(--yellow);border-color:var(--yellow)}
-.tag-ゲーム・エンタメ{color:#ff79c6;border-color:#ff79c6}
-.tag-宇宙・防衛{color:#8be9fd;border-color:#8be9fd}
-.tag-消費・小売{color:#e06c75;border-color:#e06c75}
-.tag-不動産・インフラ{color:#a8cc8c;border-color:#a8cc8c}
-.sdot{width:7px;height:7px;border-radius:50%;margin-left:2px;flex-shrink:0;display:inline-block}
-.sdot-positive{background:var(--green)}.sdot-negative{background:var(--red)}.sdot-neutral{background:var(--text2)}
 /* SUMMARY */
 .summary{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px}
 .sumcard{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:14px;text-align:center}
@@ -138,17 +112,10 @@ select.theme-dd:focus{outline:none;border-color:var(--accent)}
   .nav-tab{padding:6px 10px;font-size:12px}
   .nav-right{gap:8px}
   .last-upd{display:none}
-  .btn-refresh{padding:5px 10px;font-size:12px}
 
-  /* PAGE 1 LAYOUT: 縦積み */
-  .p1-layout{display:flex;flex-direction:column;height:auto}
-  .news-col{border-right:none;border-bottom:1px solid var(--border);padding:12px;max-height:260px;overflow-y:auto}
-  .news-col.collapsed{display:none}
+  /* PAGE 1 LAYOUT */
+  .p1-layout{height:auto}
   .main-col{padding:12px}
-
-  /* NEWS TOGGLE BUTTON */
-  .news-toggle{display:flex;align-items:center;justify-content:space-between;background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:8px 14px;margin:8px 0;cursor:pointer;font-size:13px;color:var(--text2)}
-  .news-toggle:hover{border-color:var(--accent);color:var(--accent)}
 
   /* SUMMARY: 3カラム → 小さく */
   .summary{gap:8px;margin-bottom:14px}
@@ -207,21 +174,13 @@ select.theme-dd:focus{outline:none;border-color:var(--accent)}
   </div>
   <div class="nav-right">
     <span class="last-upd" id="lastUpd"></span>
-    <button class="btn-refresh" id="btnRefresh" onclick="doRefresh()">🔄 更新</button>
   </div>
 </nav>
 
 <!-- PAGE 1 -->
 <div id="p1" class="page active">
   <div class="p1-layout">
-    <aside class="news-col" id="newsCol">
-      <div class="sec-title">📰 マーケットニュース</div>
-      <div id="newsList"><div class="empty">読み込み中...</div></div>
-    </aside>
     <main class="main-col">
-      <button class="news-toggle" id="newsToggle" onclick="toggleNews()" style="display:none">
-        <span>📰 マーケットニュースを表示</span><span id="newsToggleArrow">▼</span>
-      </button>
       <div class="summary" id="summaryBar" style="display:none">
         <div class="sumcard"><div class="num" id="sumTotal">-</div><div class="lbl">分析銘柄数</div></div>
         <div class="sumcard"><div class="num green-num" id="sumBuy">-</div><div class="lbl">買いシグナル銘柄</div></div>
@@ -278,31 +237,6 @@ select.theme-dd:focus{outline:none;border-color:var(--accent)}
 <script>
 let allData=null, activeSector='__all';
 let priceChart=null, volChart=null;
-let newsOpen=false;
-
-function isMobile(){return window.innerWidth<=768;}
-function toggleNews(){
-  const col=document.getElementById('newsCol');
-  const arrow=document.getElementById('newsToggleArrow');
-  const toggle=document.getElementById('newsToggle');
-  newsOpen=!newsOpen;
-  col.classList.toggle('collapsed',!newsOpen);
-  arrow.textContent=newsOpen?'▲':'▼';
-  toggle.querySelector('span').textContent=newsOpen?'📰 マーケットニュースを隠す':'📰 マーケットニュースを表示';
-}
-function applyMobileLayout(){
-  const toggle=document.getElementById('newsToggle');
-  const col=document.getElementById('newsCol');
-  if(isMobile()){
-    toggle.style.display='flex';
-    col.classList.add('collapsed');
-    newsOpen=false;
-  }else{
-    toggle.style.display='none';
-    col.classList.remove('collapsed');
-  }
-}
-window.addEventListener('resize',applyMobileLayout);
 
 function showPage(id){
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
@@ -318,20 +252,6 @@ function rsiColor(r){return r<35?'#d29922':r>70?'#f85149':'#3fb950';}
 function cClass(i){return i===0?'scard top1':i===1?'scard top2':i===2?'scard top3':'scard';}
 function rankBadge(i){return['🥇','🥈','🥉'][i]??'';}
 
-function renderNews(news){
-  const el=document.getElementById('newsList');
-  if(!news?.length){el.innerHTML='<div class="empty">ニュースなし</div>';return;}
-  el.innerHTML=news.map(n=>{
-    const tags=(n.sectors||[]).map(s=>`<span class="tag tag-${s}">${s}</span>`).join('');
-    return `<a class="news-item" href="${n.link}" target="_blank">
-      <div class="ni-top"><span class="ni-pub">${n.publisher||''}</span>
-      <div style="display:flex;align-items:center;gap:4px"><span class="ni-time">${fmtTime(n.time)}</span>
-      <span class="sdot sdot-${n.sentiment}"></span></div></div>
-      <div class="ni-title">${n.title}</div>
-      ${tags?`<div class="ni-tags">${tags}</div>`:''}
-    </a>`;
-  }).join('');
-}
 
 function renderSectorTabs(recs){
   const el=document.getElementById('sectorTabs');
@@ -463,8 +383,6 @@ async function loadChart(ticker){
 function renderAll(data){
   allData = data;
   document.getElementById('lastUpd').textContent = data.last_update ? `更新: ${data.last_update}` : '';
-  // ニュース
-  renderNews(data.news);
   // おすすめ株（セクタータブ＋グリッド＋サマリー）
   renderSectorTabs(data.recommendations);
   renderStocks(data.recommendations);
@@ -507,26 +425,6 @@ async function initialLoad(){
   }
 }
 
-// ─── 手動更新ボタン ───
-async function doRefresh(){
-  const ov  = document.getElementById('loadingOverlay');
-  const btn = document.getElementById('btnRefresh');
-  activeSector = '__all';
-  ov.classList.add('show');
-  btn.disabled = true;
-  try{
-    await fetch('/api/refresh',{method:'POST'});
-    // サーバー側で処理開始 → 完了まで待つ
-    const data = await pollUntilReady(300);
-    renderAll(data);
-  }catch(e){
-    document.getElementById('stocksGrid').innerHTML='<div class="empty">更新失敗。もう一度お試しください。</div>';
-  }finally{
-    ov.classList.remove('show');
-    btn.disabled = false;
-  }
-}
-
 // ─── バックグラウンド自動更新（画面チカチカなし）───
 async function silentRefresh(){
   try{
@@ -536,7 +434,6 @@ async function silentRefresh(){
   }catch(e){}
 }
 
-applyMobileLayout();
 initialLoad();
 setInterval(silentRefresh, 10*60*1000); // 10分ごとに静かに更新
 </script>

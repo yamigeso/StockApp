@@ -112,6 +112,18 @@ SECTORS = {
             "8096.T":"兼松エレクトロニクス", "7148.T":"FPG",
         },
     },
+    "仮想通貨・暗号資産": {
+        "icon": "₿",
+        "keywords": ["仮想通貨","暗号資産","crypto","bitcoin","ビットコイン","NFT","web3","ブロックチェーン","coincheck"],
+        "stocks": {
+            "8698.T":"マネックスグループ",  "8473.T":"SBIホールディングス",
+            "9449.T":"GMOインターネットG",  "3350.T":"メタプラネット",
+            "3807.T":"フィスコ",            "3696.T":"セレス",
+            "2315.T":"カイカ",              "4751.T":"サイバーエージェント",
+            "3632.T":"グリー",              "9984.T":"ソフトバンクG",
+            "3659.T":"ネクソン",            "2121.T":"ミクシィ",
+        },
+    },
     "エネルギー・電力": {
         "icon": "⚡",
         "keywords": ["エネルギー","電力","石油","ガス","energy","原油"],
@@ -254,6 +266,10 @@ THEMES = {
         "icon": "🌾", "desc": "食品・農業・飲料・水産業",
         "stocks": {"2802.T":"味の素","2801.T":"キッコーマン","2897.T":"日清食品HD","2503.T":"キリンHD","2502.T":"アサヒG HD","2282.T":"日本ハム","2871.T":"ニチレイ","1332.T":"ニッスイ","2267.T":"ヤクルト"},
     },
+    "仮想通貨・Web3": {
+        "icon": "₿", "desc": "暗号資産取引所運営・ビットコイン保有・NFT・Web3関連企業",
+        "stocks": {"8698.T":"マネックスグループ","8473.T":"SBIホールディングス","9449.T":"GMOインターネットG","3350.T":"メタプラネット","3807.T":"フィスコ","3696.T":"セレス","2315.T":"カイカ","4751.T":"サイバーエージェント","3632.T":"グリー"},
+    },
 }
 
 # ══════════════════════════════════════════════════════
@@ -344,45 +360,10 @@ def analyze_stock(ticker, display_name):
         return None
 
 # ══════════════════════════════════════════════════════
-#  ニュース
-# ══════════════════════════════════════════════════════
-def tag_news(title):
-    t = title.lower()
-    return [sec for sec, info in SECTORS.items()
-            if any(kw.lower() in t for kw in info["keywords"])]
-
-def get_news():
-    sources = ["^N225","^TPX","7203.T","9984.T","6758.T","8306.T",
-               "7974.T","9432.T","4502.T","5020.T","9101.T"]
-    all_news, seen = [], set()
-    pos = ["surge","rally","gain","record","rise","strong","beat","profit","growth",
-           "上昇","最高値","好調","増益","急騰","回復","最高益"]
-    neg = ["fall","drop","decline","loss","crash","cut","warn","slump","plunge",
-           "下落","最安値","不振","減益","リスク","急落","赤字"]
-    for ticker in sources:
-        try:
-            for item in (yf.Ticker(ticker).news or [])[:8]:
-                title = (item.get("title") or "").strip()
-                if not title or title in seen: continue
-                seen.add(title)
-                tl = title.lower()
-                sentiment = "neutral"
-                for kw in pos:
-                    if kw in tl: sentiment = "positive"; break
-                for kw in neg:
-                    if kw in tl: sentiment = "negative"; break
-                all_news.append({"title": title, "publisher": item.get("publisher", ""),
-                    "link": item.get("link", "#"), "time": item.get("providerPublishTime", 0),
-                    "sectors": tag_news(title), "sentiment": sentiment})
-        except Exception as e:
-            print(f"[NEWS] {ticker}: {e}")
-    return sorted(all_news, key=lambda x: x.get("time", 0), reverse=True)[:50]
-
-# ══════════════════════════════════════════════════════
 #  並列データ取得
 # ══════════════════════════════════════════════════════
 CACHE_FILE = "data_cache.json"
-_cache = {"recommendations": None, "themes": None, "news": None, "last_update": None, "loading": False}
+_cache = {"recommendations": None, "themes": None, "last_update": None, "loading": False}
 
 # ══════════════════════════════════════════════════════
 #  ファイルキャッシュ（サーバー再起動対応）
@@ -393,7 +374,6 @@ def save_cache_to_file():
             json.dump({
                 "recommendations": _cache["recommendations"],
                 "themes": _cache["themes"],
-                "news": _cache["news"],
                 "last_update": _cache["last_update"],
             }, f, ensure_ascii=False)
         print("[INFO] キャッシュをファイルに保存しました")
@@ -407,7 +387,6 @@ def load_cache_from_file():
                 data = json.load(f)
             _cache["recommendations"] = data.get("recommendations")
             _cache["themes"] = data.get("themes")
-            _cache["news"] = data.get("news")
             _cache["last_update"] = data.get("last_update")
             print(f"[INFO] キャッシュ読み込み完了（{_cache['last_update']}）")
             return True
@@ -420,8 +399,6 @@ def refresh_data():
     _cache["loading"] = True
     print("[INFO] データ取得開始（並列処理）...")
     try:
-        _cache["news"] = get_news()
-
         # 全セクターの全銘柄リストを収集（重複除去）
         all_tasks = {}  # ticker -> (display_name, [sectors])
         for sec, info in SECTORS.items():
@@ -510,7 +487,7 @@ def api_data():
         return jsonify({"loading": True})
     # キャッシュあればすぐ返す（取得中でも古いデータを返す）
     return jsonify({"recommendations": _cache["recommendations"], "themes": _cache["themes"],
-                    "news": _cache["news"], "last_update": _cache["last_update"], "loading": False})
+                    "last_update": _cache["last_update"], "loading": False})
 
 @app.route("/api/refresh", methods=["POST"])
 def api_refresh():
