@@ -295,7 +295,7 @@ def generate_reason(d):
 def analyze_stock(ticker, display_name):
     try:
         stock = yf.Ticker(ticker)
-        hist  = stock.history(period="3mo")
+        hist  = stock.history(period="3mo", timeout=20)
         if hist.empty or len(hist) < 10:
             return None
         close   = hist["Close"]
@@ -430,15 +430,18 @@ def refresh_data():
                     all_tasks[t] = (n, [])
                 all_tasks[t][1].append(sec)
 
-        # 並列取得（最大30スレッド）
+        # 並列取得（最大5スレッド・1銘柄30秒タイムアウト）
         stock_results = {}
-        with ThreadPoolExecutor(max_workers=30) as ex:
+        with ThreadPoolExecutor(max_workers=5) as ex:
             futures = {ex.submit(analyze_stock, t, name): t
                        for t, (name, _) in all_tasks.items()}
             done = 0
-            for future in as_completed(futures):
+            for future in as_completed(futures, timeout=600):
                 ticker = futures[future]
-                result = future.result()
+                try:
+                    result = future.result(timeout=30)
+                except Exception:
+                    result = None
                 done += 1
                 if result:
                     stock_results[ticker] = result
@@ -465,10 +468,13 @@ def refresh_data():
         # テーマにしかない銘柄を追加取得
         extra = {t: n for t, n in all_theme_tickers.items() if t not in stock_results}
         if extra:
-            with ThreadPoolExecutor(max_workers=20) as ex:
+            with ThreadPoolExecutor(max_workers=5) as ex:
                 futures = {ex.submit(analyze_stock, t, n): t for t, n in extra.items()}
-                for future in as_completed(futures):
-                    r = future.result()
+                for future in as_completed(futures, timeout=300):
+                    try:
+                        r = future.result(timeout=30)
+                    except Exception:
+                        r = None
                     if r:
                         stock_results[futures[future]] = r
 
