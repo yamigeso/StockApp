@@ -284,74 +284,174 @@ def calc_rsi(series, period=14):
 
 def generate_reason(d):
     lines = []
-    r1, r3, rsi, score = d["return_1m"], d["return_3m"], d["rsi"], d["score"]
+    r1, r3 = d["return_1m"], d["return_3m"]
+    rsi, score = d["rsi"], d["score"]
+    per, pbr, div = d.get("per"), d.get("pbr"), d.get("div_yield", 0)
     sigs = [s["text"] for s in d.get("signals", [])]
-    if score >= 9:    lines.append("📊 総合スコアが非常に高く、複数の買いシグナルが重なっています。")
-    elif score >= 6:  lines.append("📊 総合的に良好な状態で、中期的な上昇が期待されます。")
-    elif score >= 3:  lines.append("📊 一部に好転の兆しが見られますが、慎重な判断が必要です。")
+
+    # 総評
+    if score >= 14:   lines.append("📊 複数の強力な買いシグナルが重なる最高評価銘柄です。")
+    elif score >= 10: lines.append("📊 テクニカル・ファンダメンタル両面で良好な状態です。")
+    elif score >= 6:  lines.append("📊 一部のシグナルが好転しており、中期的な上昇が期待されます。")
+    elif score >= 2:  lines.append("📊 一部に好転の兆しはありますが、慎重な判断が必要です。")
     else:             lines.append("📊 現時点では積極的な買いシグナルは少ない状態です。")
-    if r1 > 10:   lines.append(f"直近1ヶ月で {r1:.1f}% の急騰。強いモメンタムが続いています。")
-    elif r1 > 3:  lines.append(f"直近1ヶ月で {r1:.1f}% 上昇し、上昇トレンドが継続中です。")
+
+    # モメンタム
+    if r1 > 10:   lines.append(f"直近1ヶ月で {r1:.1f}% の急騰。強いモメンタムが継続中です。")
+    elif r1 > 3:  lines.append(f"直近1ヶ月で {r1:.1f}% 上昇し、上昇トレンドが続いています。")
     elif r1 > 0:  lines.append(f"直近1ヶ月で {r1:.1f}% の小幅上昇。安定した値動きです。")
-    elif r1 > -5: lines.append(f"直近1ヶ月で {r1:.1f}% の小幅下落。様子見が続いています。")
+    elif r1 > -5: lines.append(f"直近1ヶ月で {r1:.1f}% の小幅下落。底値模索中です。")
     else:         lines.append(f"直近1ヶ月で {r1:.1f}% 下落。底値確認が重要です。")
-    if r3 > 15:   lines.append(f"3ヶ月では {r3:.1f}% の大幅上昇。中期トレンドは強気です。")
-    elif r3 > 0:  lines.append(f"3ヶ月では {r3:.1f}% 上昇し、中期トレンドは上向きです。")
-    elif r3 < -10:lines.append(f"3ヶ月では {r3:.1f}% 下落。反転タイミングの見極めが重要です。")
-    if rsi < 30:       lines.append(f"RSI({rsi:.0f})は極端な売られすぎゾーン。強い反発が期待されます。")
-    elif rsi < 40:     lines.append(f"RSI({rsi:.0f})は売られすぎ水準に近く、反発上昇が期待されます。")
-    elif rsi <= 60:    lines.append(f"RSI({rsi:.0f})は適正水準で、過熱感なく健全な状態です。")
-    elif rsi <= 70:    lines.append(f"RSI({rsi:.0f})はやや高めですが、許容範囲内です。")
-    else:              lines.append(f"RSI({rsi:.0f})は買われすぎゾーン。短期的な利益確定売りに注意。")
-    if any("短期MA > 長期MA" in s for s in sigs): lines.append("短期移動平均線が長期を上回るゴールデンクロス的強気シグナルが点灯しています。")
-    elif any("20日MA上方" in s for s in sigs):    lines.append("株価が20日移動平均線を上回り、短期的な上昇トレンドが確認できます。")
-    if any("出来高増加" in s for s in sigs):       lines.append("出来高が増加しており、市場の注目度が高まっています。")
+
+    if r3 > 20:   lines.append(f"3ヶ月では {r3:.1f}% の大幅上昇。中期トレンドは強気です。")
+    elif r3 > 5:  lines.append(f"3ヶ月では {r3:.1f}% 上昇し、中期トレンドは上向きです。")
+    elif r3 < -15: lines.append(f"3ヶ月では {r3:.1f}% 下落。反転タイミングの見極めが重要です。")
+
+    # トレンド
+    if any("ゴールデンクロス" in s for s in sigs):
+        lines.append("25日線が75日線を上回るゴールデンクロス形成中。中期の強気サインです。")
+    elif any("デッドクロス" in s for s in sigs):
+        lines.append("デッドクロス警戒。下落トレンドが続く可能性があります。")
+
+    # RSI
+    if rsi < 30:      lines.append(f"RSI({rsi:.0f})は売られすぎゾーン。反発上昇が期待されます。")
+    elif rsi <= 50:   lines.append(f"RSI({rsi:.0f})は売られすぎ回復中。押し目買いの好機です。")
+    elif rsi <= 65:   lines.append(f"RSI({rsi:.0f})は健全な上昇水準です。")
+    elif rsi <= 75:   lines.append(f"RSI({rsi:.0f})はやや過熱気味。短期的な調整に注意。")
+    else:             lines.append(f"RSI({rsi:.0f})は買われすぎゾーン。利益確定売りに注意。")
+
+    # ファンダメンタル
+    if per and 0 < per < 15:  lines.append(f"PER {per:.1f}倍と割安水準。バリュー投資の観点から魅力的です。")
+    elif per and per > 40:    lines.append(f"PER {per:.1f}倍と高め。成長への期待が織り込まれています。")
+    if pbr and pbr < 1:       lines.append(f"PBR {pbr:.2f}倍と解散価値以下。下値リスクが限定的です。")
+    if div and div > 3:       lines.append(f"配当利回り {div:.1f}% と高配当。インカムゲイン狙いにも適しています。")
+
+    # 出来高
+    if any("出来高急増" in s for s in sigs): lines.append("出来高が急増しており、市場の強い注目を集めています。")
+    elif any("出来高増加" in s for s in sigs): lines.append("出来高が増加傾向で、市場の関心が高まっています。")
+
     return " ".join(lines)
+
 
 def analyze_stock(ticker, display_name):
     try:
         stock = yf.Ticker(ticker)
-        hist  = stock.history(period="3mo", timeout=20)
-        if hist.empty or len(hist) < 10:
+        hist  = stock.history(period="6mo", timeout=20)
+        if hist.empty or len(hist) < 20:
             return None
+
         close   = hist["Close"]
+        volume  = hist["Volume"]
         current = float(close.iloc[-1])
-        p1m     = float(close.iloc[max(-21, -len(close))])
-        p3m     = float(close.iloc[0])
-        ret_1m  = (current - p1m) / p1m * 100
-        ret_3m  = (current - p3m) / p3m * 100
-        ma20    = float(close.rolling(20).mean().iloc[-1]) if len(close) >= 20 else current
-        ma50    = float(close.rolling(50).mean().iloc[-1]) if len(close) >= 50 else ma20
-        rsi     = calc_rsi(close)
-        vol_now = float(hist["Volume"].iloc[-5:].mean())
-        vol_old = float(hist["Volume"].iloc[-20:-5].mean()) if len(hist) >= 20 else vol_now
+
+        # ── リターン計算 ──
+        p1w = float(close.iloc[max(-5,  -len(close))])
+        p1m = float(close.iloc[max(-21, -len(close))])
+        p3m = float(close.iloc[max(-63, -len(close))])
+        ret_1w = (current - p1w) / p1w * 100
+        ret_1m = (current - p1m) / p1m * 100
+        ret_3m = (current - p3m) / p3m * 100
+
+        # ── 移動平均（日本標準: 5・25・75日） ──
+        ma5  = float(close.rolling(5).mean().iloc[-1])  if len(close) >= 5  else current
+        ma25 = float(close.rolling(25).mean().iloc[-1]) if len(close) >= 25 else current
+        ma75 = float(close.rolling(75).mean().iloc[-1]) if len(close) >= 75 else ma25
+
+        # ── RSI(14) ──
+        rsi = calc_rsi(close)
+
+        # ── ボリンジャーバンド（25日・2σ） ──
+        bb_std   = float(close.rolling(25).std().iloc[-1]) if len(close) >= 25 else 0
+        bb_upper = ma25 + 2 * bb_std
+        bb_lower = ma25 - 2 * bb_std
+        bb_pct   = (current - bb_lower) / (bb_upper - bb_lower) if bb_upper != bb_lower else 0.5
+
+        # ── 出来高 ──
+        vol_now = float(volume.iloc[-5:].mean())
+        vol_old = float(volume.iloc[-25:-5].mean()) if len(hist) >= 25 else vol_now
         vol_r   = vol_now / vol_old if vol_old > 0 else 1.0
 
-        score, signals = 0, []
-        if ret_1m > 3:    score += 3; signals.append({"text": f"直近1ヶ月 +{ret_1m:.1f}%", "type": "positive"})
-        elif ret_1m > 0:  score += 1; signals.append({"text": f"直近1ヶ月 +{ret_1m:.1f}%", "type": "positive"})
-        elif ret_1m < -5: score -= 2; signals.append({"text": f"直近1ヶ月 {ret_1m:.1f}%", "type": "negative"})
-        if ret_3m > 5:    score += 2; signals.append({"text": f"3ヶ月 +{ret_3m:.1f}%（好調）", "type": "positive"})
-        elif ret_3m < 0:  score -= 1
-        if current > ma20: score += 2; signals.append({"text": "20日MA上方（上昇トレンド）", "type": "positive"})
-        if ma20 > ma50:   score += 2; signals.append({"text": "短期MA > 長期MA（強気シグナル）", "type": "positive"})
-        if 35 <= rsi <= 60:  score += 2; signals.append({"text": f"RSI {rsi:.0f}（適正水準）", "type": "neutral"})
-        elif rsi < 35:       score += 1; signals.append({"text": f"RSI {rsi:.0f}（売られすぎ・反発期待）", "type": "neutral"})
-        elif rsi > 70:       score -= 1; signals.append({"text": f"RSI {rsi:.0f}（買われすぎ注意）", "type": "negative"})
-        if vol_r > 1.3:  score += 1; signals.append({"text": "出来高増加（注目度上昇）", "type": "positive"})
-
+        # ── ファンダメンタル ──
         info = {}
         try: info = stock.info or {}
         except: pass
+        per       = info.get("trailingPE")
+        pbr       = info.get("priceToBook")
+        div_yield = (info.get("dividendYield") or 0) * 100
+        week52h   = info.get("fiftyTwoWeekHigh", current)
+        week52l   = info.get("fiftyTwoWeekLow",  current)
+        pct_from_high = (current - week52h) / week52h * 100 if week52h else 0
+
+        # ══ スコアリング（最大約20点） ══
+        score, signals = 0, []
+
+        # 1. モメンタム（最大6点）
+        if ret_1m > 10:    score += 3; signals.append({"text": f"強い上昇 1ヶ月+{ret_1m:.1f}%", "type": "positive"})
+        elif ret_1m > 5:   score += 2; signals.append({"text": f"上昇継続 1ヶ月+{ret_1m:.1f}%", "type": "positive"})
+        elif ret_1m > 0:   score += 1; signals.append({"text": f"小幅上昇 1ヶ月+{ret_1m:.1f}%", "type": "positive"})
+        elif ret_1m < -10: score -= 2; signals.append({"text": f"急落中 1ヶ月{ret_1m:.1f}%", "type": "negative"})
+        elif ret_1m < -5:  score -= 1; signals.append({"text": f"下落中 1ヶ月{ret_1m:.1f}%", "type": "negative"})
+
+        if ret_3m > 20:   score += 3; signals.append({"text": f"中期急騰 3ヶ月+{ret_3m:.1f}%", "type": "positive"})
+        elif ret_3m > 10: score += 2; signals.append({"text": f"中期上昇 3ヶ月+{ret_3m:.1f}%", "type": "positive"})
+        elif ret_3m > 0:  score += 1
+        elif ret_3m < -15: score -= 2
+        elif ret_3m < -5:  score -= 1
+
+        # 2. トレンド分析（最大5点）
+        if current > ma25: score += 2; signals.append({"text": "25日MA上方（上昇トレンド）", "type": "positive"})
+        else:              score -= 1; signals.append({"text": "25日MA下方（下降トレンド）", "type": "negative"})
+        if ma25 > ma75:    score += 2; signals.append({"text": "ゴールデンクロス形成中", "type": "positive"})
+        else:              signals.append({"text": "デッドクロス警戒", "type": "negative"})
+        if current > ma75: score += 1; signals.append({"text": "75日MA上方（長期上昇）", "type": "positive"})
+
+        # 3. RSI（最大3点）
+        if 30 <= rsi <= 50:   score += 3; signals.append({"text": f"RSI {rsi:.0f}（売られすぎ回復・買い場）", "type": "positive"})
+        elif 50 < rsi <= 65:  score += 2; signals.append({"text": f"RSI {rsi:.0f}（健全な上昇）", "type": "neutral"})
+        elif 25 <= rsi < 30:  score += 2; signals.append({"text": f"RSI {rsi:.0f}（強い売られすぎ・反発期待）", "type": "positive"})
+        elif 65 < rsi <= 75:  score += 1; signals.append({"text": f"RSI {rsi:.0f}（やや過熱）", "type": "neutral"})
+        elif rsi > 75:        score -= 1; signals.append({"text": f"RSI {rsi:.0f}（買われすぎ注意）", "type": "negative"})
+        else:                 score += 1; signals.append({"text": f"RSI {rsi:.0f}（極端な売られすぎ）", "type": "neutral"})
+
+        # 4. ボリンジャーバンド（最大2点）
+        if bb_pct < 0.2:   score += 2; signals.append({"text": "BB下限付近（反発期待）", "type": "positive"})
+        elif bb_pct < 0.4: score += 1; signals.append({"text": "BB下半分（割安圏）", "type": "positive"})
+        elif bb_pct > 0.9: score -= 1; signals.append({"text": "BBバンド上限突破（過熱警戒）", "type": "negative"})
+
+        # 5. 出来高（最大2点）
+        if vol_r > 2.0:   score += 2; signals.append({"text": f"出来高急増 ×{vol_r:.1f}（注目急上昇）", "type": "positive"})
+        elif vol_r > 1.3: score += 1; signals.append({"text": f"出来高増加 ×{vol_r:.1f}", "type": "positive"})
+
+        # 6. ファンダメンタル（最大4点）
+        if per is not None and per > 0:
+            if per < 15:   score += 2; signals.append({"text": f"PER {per:.1f}倍（割安）", "type": "positive"})
+            elif per < 25: score += 1; signals.append({"text": f"PER {per:.1f}倍（適正）", "type": "neutral"})
+            elif per > 50: score -= 1; signals.append({"text": f"PER {per:.1f}倍（割高注意）", "type": "negative"})
+
+        if pbr is not None and pbr > 0:
+            if pbr < 1:   score += 2; signals.append({"text": f"PBR {pbr:.2f}倍（解散価値以下）", "type": "positive"})
+            elif pbr < 2: score += 1; signals.append({"text": f"PBR {pbr:.2f}倍（割安圏）", "type": "positive"})
+
+        if div_yield > 3.5: score += 2; signals.append({"text": f"高配当 {div_yield:.1f}%", "type": "positive"})
+        elif div_yield > 2: score += 1; signals.append({"text": f"配当利回り {div_yield:.1f}%", "type": "positive"})
+
+        # 7. 52週高値からの乖離（最大1点）
+        if pct_from_high < -30: score += 1; signals.append({"text": f"52週高値から{pct_from_high:.0f}%（反発期待）", "type": "neutral"})
+        elif pct_from_high > -5: signals.append({"text": f"52週高値圏", "type": "positive"})
 
         data = {
             "ticker": ticker, "name": display_name,
             "current_price": round(current, 0),
-            "currency": "JPY",
             "return_1m": round(ret_1m, 2), "return_3m": round(ret_3m, 2),
-            "rsi": round(rsi, 1), "ma20": round(ma20, 0),
+            "rsi": round(rsi, 1),
+            "ma25": round(ma25, 0), "ma75": round(ma75, 0),
+            "bb_pct": round(bb_pct, 2),
+            "per": round(per, 1) if per and per > 0 else None,
+            "pbr": round(pbr, 2) if pbr and pbr > 0 else None,
+            "div_yield": round(div_yield, 1) if div_yield > 0 else None,
+            "vol_ratio": round(vol_r, 2),
             "score": score, "signals": signals,
-            "market_cap": info.get("marketCap"), "market": "JP",
+            "market": "JP",
         }
         data["reason"] = generate_reason(data)
         return data

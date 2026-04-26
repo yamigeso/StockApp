@@ -59,6 +59,8 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI','Hiragino San
 .rsi-track{height:5px;background:var(--bg3);border-radius:3px;position:relative}
 .rsi-fill{height:100%;border-radius:3px}
 .rsi-dot{position:absolute;top:-3px;width:11px;height:11px;border-radius:50%;border:2px solid var(--bg2);transform:translateX(-50%)}
+.funda-row{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
+.fchip{font-size:11px;padding:2px 7px;border-radius:5px;background:var(--bg3);color:var(--text2);border:1px solid var(--border)}
 .signals{display:flex;flex-direction:column;gap:3px;margin-bottom:10px}
 .sig{font-size:12px}.sig-pos{color:var(--green)}.sig-neg{color:var(--red)}.sig-neu{color:var(--text2)}
 .reason-box{background:var(--bg3);border-radius:8px;padding:10px;font-size:12px;color:var(--text2);line-height:1.6;border-left:3px solid var(--accent);margin-bottom:8px}
@@ -162,8 +164,8 @@ select.theme-dd:focus{outline:none;border-color:var(--accent)}
 
 <div class="loading-overlay" id="loadingOverlay">
   <div class="spinner"></div>
-  <div class="loading-txt">東証 201銘柄を分析中...</div>
-  <div style="font-size:12px;color:#484f58;margin-top:6px">並列取得中です。初回は数分かかる場合があります</div>
+  <div class="loading-txt">東証全銘柄を分析中...</div>
+  <div style="font-size:12px;color:#484f58;margin-top:6px">PER・PBR・配当・テクニカル指標を取得中。初回は数分かかります</div>
 </div>
 
 <nav class="nav">
@@ -218,6 +220,7 @@ select.theme-dd:focus{outline:none;border-color:var(--accent)}
       <div class="modal-price" id="mPrice"></div>
       <div class="rets" id="mRets"></div>
     </div>
+    <div class="funda-row" id="mFunda"></div>
     <div class="modal-section">
       <div class="modal-section-title">📈 株価チャート（3ヶ月）</div>
       <div class="chart-wrap" id="chartWrap"><canvas id="priceChart" height="180"></canvas></div>
@@ -285,6 +288,11 @@ function stockCard(s,i,showSec){
         <div class="rsi-dot" style="left:${Math.min(100,s.rsi)}%;background:${rc}"></div>
       </div>
     </div>
+    <div class="funda-row">
+      ${s.per!=null?`<span class="fchip">PER ${s.per}倍</span>`:''}
+      ${s.pbr!=null?`<span class="fchip">PBR ${s.pbr}倍</span>`:''}
+      ${s.div_yield!=null?`<span class="fchip">配当 ${s.div_yield}%</span>`:''}
+    </div>
     <div class="signals">${(s.signals||[]).map(sg=>`<div class="sig sig-${sg.type}">${sg.type==='positive'?'✅':sg.type==='negative'?'⚠️':'ℹ️'} ${sg.text}</div>`).join('')}</div>
     <div class="reason-box">${(s.reason||'').substring(0,140)}...</div>
     <button class="chart-btn" onclick="event.stopPropagation();openModal(${safeS})">📊 チャート・詳細を見る</button>
@@ -338,6 +346,12 @@ function openModal(s){
     <span class="rchip ${rClass(s.return_1m)}">1ヶ月 ${s.return_1m>0?'+':''}${s.return_1m}%</span>
     <span class="rchip ${rClass(s.return_3m)}">3ヶ月 ${s.return_3m>0?'+':''}${s.return_3m}%</span>`;
   document.getElementById('mReason').textContent=s.reason||'分析データなし';
+  const funda=[];
+  if(s.per!=null) funda.push(`<span class="fchip">PER ${s.per}倍</span>`);
+  if(s.pbr!=null) funda.push(`<span class="fchip">PBR ${s.pbr}倍</span>`);
+  if(s.div_yield!=null) funda.push(`<span class="fchip">配当利回り ${s.div_yield}%</span>`);
+  if(s.vol_ratio!=null) funda.push(`<span class="fchip">出来高比 ×${s.vol_ratio}</span>`);
+  document.getElementById('mFunda').innerHTML=funda.join('');
   document.getElementById('mSignals').innerHTML=(s.signals||[]).map(sg=>
     `<div class="sig sig-${sg.type}">${sg.type==='positive'?'✅':sg.type==='negative'?'⚠️':'ℹ️'} ${sg.text}</div>`).join('');
   if(priceChart){priceChart.destroy();priceChart=null;}
