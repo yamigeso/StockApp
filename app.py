@@ -614,6 +614,22 @@ def background_scheduler():
         print("[SCHEDULER] 定期更新開始...")
         refresh_data()
 
+def self_ping():
+    """10分ごとに自分自身にアクセスしてRenderのスリープを防止"""
+    import urllib.request
+    url = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
+    if not url:
+        print("[PING] RENDER_EXTERNAL_URL未設定。ローカル環境のためスキップ。")
+        return
+    print(f"[PING] 自己pingを開始します: {url}")
+    while True:
+        time.sleep(10 * 60)  # 10分待機
+        try:
+            urllib.request.urlopen(f"{url}/api/data", timeout=15)
+            print(f"[PING] 自己ping成功 → スリープ防止")
+        except Exception as e:
+            print(f"[PING] 自己ping失敗: {e}")
+
 def startup():
     print("=" * 52)
     print("  📈 株式おすすめアプリ v3 起動中（東証専用）")
@@ -629,6 +645,8 @@ def startup():
         threading.Thread(target=refresh_data, daemon=True).start()
     # 定期更新スケジューラー起動
     threading.Thread(target=background_scheduler, daemon=True).start()
+    # 自己pingでスリープ防止
+    threading.Thread(target=self_ping, daemon=True).start()
 
 startup()
 
