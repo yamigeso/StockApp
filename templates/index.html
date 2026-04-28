@@ -402,7 +402,9 @@ async function loadChart(ticker){
 function renderAll(data){
   allData = data;
   _stockIdx = 0; // インデックスリセット
-  document.getElementById('lastUpd').textContent = data.last_update ? `更新: ${data.last_update}` : '';
+  const lu = document.getElementById('lastUpd');
+  lu.textContent = data.last_update ? `更新: ${data.last_update}` : '';
+  lu.dataset.ts = data.last_update || '';
   // おすすめ株（セクタータブ＋グリッド＋サマリー）
   renderSectorTabs(data.recommendations);
   renderStocks(data.recommendations);
@@ -412,70 +414,56 @@ function renderAll(data){
   renderThemePage();
 }
 
-// ─── ポーリング（オーバーレイを出したまま待ち続ける）───
-async function pollUntilReady(maxWait=300){
-  const start = Date.now();
-  while(true){
-    try{
-      const res = await fetch('/api/data');
-      if(!res.ok) throw new Error('HTTP '+res.status);
-      const data = await res.json();
-      // recommendations が存在してエントリがあれば表示可能
-      if(data && data.recommendations && Object.keys(data.recommendations).length > 0){
-        return data;
-      }
-    }catch(e){
-      console.warn('[poll] エラー:', e);
-    }
-    if(Date.now()-start > maxWait*1000) throw new Error('timeout');
-    await new Promise(r=>setTimeout(r,3000));
-  }
+// ─── データ取得ユーティリティ ───
+async function fetchData(){
+  const res = await fetch('/api/data');
+  if(!res.ok) throw new Error('HTTP '+res.status);
+  const data = await res.json();
+  if(!data.recommendations || Object.keys(data.recommendations).length === 0)
+    throw new Error('no data');
+  return data;
 }
 
-// ─── 初回ロード ───
+// ─── 初回ロード（URLアクセス時：キャッシュをそのまま表示するだけ）───
 async function initialLoad(){
-  // まず1回だけ即座に確認（キャッシュがあれば即描画・オーバーレイなし）
   try{
-    const res = await fetch('/api/data');
-    if(res.ok){
-      const data = await res.json();
-      if(data && data.recommendations && Object.keys(data.recommendations).length > 0){
-        try{ renderAll(data); }catch(e){ console.error('[renderAll]', e); }
-        return; // オーバーレイ不要
+    const data = await fetchData();
+    renderAll(data);
+  }catch(e){
+    // キャッシュなし（サーバー起動直後）→ オーバーレイを出して待つ
+    const ov = document.getElementById('loadingOverlay');
+    ov.classList.add('show');
+    const start = Date.now();
+    while(true){
+      await new Promise(r=>setTimeout(r,4000));
+      try{
+        const data = await fetchData();
+        renderAll(data);
+        ov.classList.remove('show');
+        return;
+      }catch(_){}
+      if(Date.now()-start > 300000){ // 5分でタイムアウト
+        ov.classList.remove('show');
+        document.getElementById('stocksGrid').innerHTML=
+          '<div class="empty">データ取得失敗。しばらく待ってから再読み込みしてください。</div>';
+        return;
       }
     }
-  }catch(e){ console.warn('[初回即時確認]', e); }
-
-  // データなし → オーバーレイを出してポーリング
-  const ov = document.getElementById('loadingOverlay');
-  ov.classList.add('show');
-  try{
-    const data = await pollUntilReady(300);
-    try{
-      renderAll(data);
-    }catch(renderErr){
-      console.error('[renderAll] エラー:', renderErr);
-      document.getElementById('stocksGrid').innerHTML='<div class="empty">描画エラーが発生しました: '+renderErr.message+'</div>';
-    }
-  }catch(e){
-    console.error('[poll] タイムアウト:', e);
-    document.getElementById('stocksGrid').innerHTML='<div class="empty">データ取得失敗。しばらく待ってから再読み込みしてください。</div>';
-  }finally{
-    ov.classList.remove('show');
   }
 }
 
-// ─── バックグラウンド自動更新（画面チカチカなし）───
+// ─── 10分ごとにサーバーのデータを確認（タイムスタンプが変わったら再描画）───
 async function silentRefresh(){
   try{
-    await fetch('/api/refresh',{method:'POST'});
-    const data = await pollUntilReady(300);
-    renderAll(data); // データ差し替えのみ、オーバーレイなし
+    const data = await fetchData();
+    const newTs = data.last_update || '';
+    const curTs = document.getElementById('lastUpd').dataset.ts || '';
+    if(newTs !== curTs) renderAll(data); // 変わってたら静かに更新
   }catch(e){}
 }
 
 initialLoad();
-setInterval(silentRefresh, 10*60*1000); // 10分ごとに静かに更新
+setInterval(silentRefresh, 10*60*1000); // 10分ごと
 </script>
 </body>
 </html>

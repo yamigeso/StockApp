@@ -586,10 +586,6 @@ def api_data():
     return jsonify({"recommendations": _cache["recommendations"], "themes": _cache["themes"],
                     "last_update": _cache["last_update"], "loading": False})
 
-@app.route("/api/refresh", methods=["POST"])
-def api_refresh():
-    threading.Thread(target=refresh_data, daemon=True).start()
-    return jsonify({"status": "refreshing"})
 
 @app.route("/api/chart/<ticker>")
 def api_chart(ticker):
@@ -627,9 +623,9 @@ def api_chart(ticker):
         return jsonify({"error": str(e)}), 500
 
 def background_scheduler():
-    """60分ごとに自動データ更新"""
+    """10分ごとに自動データ更新（クライアントには通知しない）"""
     while True:
-        time.sleep(60 * 60)
+        time.sleep(10 * 60)
         print("[SCHEDULER] 定期更新開始...")
         refresh_data()
 
