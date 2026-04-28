@@ -274,7 +274,7 @@ function stockCard(s,i,showSec){
   const rc=rsiColor(s.rsi);
   const sec=showSec&&s.sector?` · ${s.sector}`:'';
   const key=regStock(s);
-  return `<div class="${cClass(i)}" onclick="openModal(_stockMap['${key}'])"
+  return `<div class="${cClass(i)}" onclick="openModal(_stockMap['${key}'])">
     ${rankBadge(i)?`<div class="rank-badge">${rankBadge(i)}</div>`:''}
     <div class="card-top">
       <div><div class="sticker">${s.ticker}${sec}</div><div class="sname">${s.name}</div>
