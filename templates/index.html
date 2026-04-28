@@ -265,11 +265,16 @@ function renderSectorTabs(recs){
 function setSector(s){activeSector=s;renderSectorTabs(allData.recommendations);renderStocks(allData.recommendations);}
 
 
+// 株データをインデックスで管理（onclick の JSON埋め込み問題を回避）
+const _stockMap={};
+let _stockIdx=0;
+function regStock(s){const k='s'+(++_stockIdx);_stockMap[k]=s;return k;}
+
 function stockCard(s,i,showSec){
   const rc=rsiColor(s.rsi);
   const sec=showSec&&s.sector?` · ${s.sector}`:'';
-  const safeS=JSON.stringify(s).replace(/'/g,"\\'");
-  return `<div class="${cClass(i)}" onclick='openModal(${safeS})'>
+  const key=regStock(s);
+  return `<div class="${cClass(i)}" onclick="openModal(_stockMap['${key}'])"
     ${rankBadge(i)?`<div class="rank-badge">${rankBadge(i)}</div>`:''}
     <div class="card-top">
       <div><div class="sticker">${s.ticker}${sec}</div><div class="sname">${s.name}</div>
@@ -294,7 +299,7 @@ function stockCard(s,i,showSec){
     </div>
     <div class="signals">${(s.signals||[]).map(sg=>`<div class="sig sig-${sg.type}">${sg.type==='positive'?'✅':sg.type==='negative'?'⚠️':'ℹ️'} ${sg.text}</div>`).join('')}</div>
     <div class="reason-box">${(s.reason||'').substring(0,140)}...</div>
-    <button class="chart-btn" onclick="event.stopPropagation();openModal(${safeS})">📊 チャート・詳細を見る</button>
+    <button class="chart-btn" onclick="event.stopPropagation();openModal(_stockMap['${key}'])">📊 チャート・詳細を見る</button>
   </div>`;
 }
 
@@ -328,8 +333,9 @@ function renderThemePage(){
   if(!info)return;
   const desc=document.getElementById('themeDesc');
   desc.style.display='flex';
-  desc.innerHTML=`<div class="theme-icon-big">${info.icon}</div><div><div class="theme-desc-name">${theme}</div><div class="theme-desc-text">${info.desc}</div></div>`;
-  let list=[...info.stocks].sort((a,b)=>b.score-a.score);
+  desc.innerHTML=`<div class="theme-icon-big">${info.icon||''}</div><div><div class="theme-desc-name">${theme}</div><div class="theme-desc-text">${info.desc||''}</div></div>`;
+  const stocks=Array.isArray(info.stocks)?info.stocks:[];
+  let list=[...stocks].sort((a,b)=>(b.score||0)-(a.score||0));
   const grid=document.getElementById('themeGrid');
   if(!list.length){grid.innerHTML='<div class="empty">該当銘柄なし</div>';return;}
   grid.innerHTML=list.map((s,i)=>stockCard(s,i,false)).join('');
@@ -395,6 +401,7 @@ async function loadChart(ticker){
 // ─── 全データ揃ったら一括描画（チカチカ防止）───
 function renderAll(data){
   allData = data;
+  _stockIdx = 0; // インデックスリセット
   document.getElementById('lastUpd').textContent = data.last_update ? `更新: ${data.last_update}` : '';
   // おすすめ株（セクタータブ＋グリッド＋サマリー）
   renderSectorTabs(data.recommendations);
@@ -411,13 +418,17 @@ async function pollUntilReady(maxWait=300){
   while(true){
     try{
       const res = await fetch('/api/data');
+      if(!res.ok) throw new Error('HTTP '+res.status);
       const data = await res.json();
-      if(!data.loading && data.recommendations){
+      // recommendations が存在してエントリがあれば表示可能
+      if(data && data.recommendations && Object.keys(data.recommendations).length > 0){
         return data;
       }
-    }catch(e){}
+    }catch(e){
+      console.warn('[poll] エラー:', e);
+    }
     if(Date.now()-start > maxWait*1000) throw new Error('timeout');
-    await new Promise(r=>setTimeout(r,3000)); // 3秒ごとに再チェック
+    await new Promise(r=>setTimeout(r,3000));
   }
 }
 
@@ -427,9 +438,15 @@ async function initialLoad(){
   ov.classList.add('show');
   try{
     const data = await pollUntilReady(300);
-    renderAll(data);
+    try{
+      renderAll(data);
+    }catch(renderErr){
+      console.error('[renderAll] エラー:', renderErr);
+      document.getElementById('stocksGrid').innerHTML='<div class="empty">描画エラーが発生しました: '+renderErr.message+'</div>';
+    }
   }catch(e){
-    document.getElementById('stocksGrid').innerHTML='<div class="empty">データ取得失敗。サーバーを確認してください。</div>';
+    console.error('[poll] タイムアウト:', e);
+    document.getElementById('stocksGrid').innerHTML='<div class="empty">データ取得失敗。しばらく待ってから再読み込みしてください。</div>';
   }finally{
     ov.classList.remove('show');
   }
