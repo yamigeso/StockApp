@@ -11,6 +11,8 @@ import threading
 import json
 import os
 import time
+import requests
+import functools
 
 app = Flask(__name__)
 
@@ -458,7 +460,7 @@ def analyze_stock(ticker, display_name):
 #  並列データ取得
 # ══════════════════════════════════════════════════════
 CACHE_FILE = "data_cache.json"
-_cache = {"recommendations": None, "themes": None, "last_update": None, "loading": False}
+_cache = {"recommendations": None, "themes": None, "last_update": None, "loading": False, "charts": {}}
 
 # ══════════════════════════════════════════════════════
 #  ファイルキャッシュ（サーバー再起動対応）
@@ -591,22 +593,35 @@ def api_refresh():
 
 @app.route("/api/chart/<ticker>")
 def api_chart(ticker):
+    # キャッシュチェック（1時間有効）
+    cached = _cache["charts"].get(ticker)
+    if cached and time.time() - cached["ts"] < 3600:
+        return jsonify({"ticker": ticker, "data": cached["data"]})
+
     def _fetch():
-        h = yf.Ticker(ticker).history(period="3mo", interval="1d")
+        # カスタムセッションで全HTTPリクエストに10秒タイムアウトを設定
+        sess = requests.Session()
+        sess.request = functools.partial(sess.request, timeout=10)
+        h = yf.Ticker(ticker, session=sess).history(period="3mo", interval="1d")
         return h
 
     try:
         with ThreadPoolExecutor(max_workers=1) as ex:
             fut = ex.submit(_fetch)
             try:
-                hist = fut.result(timeout=15)
+                hist = fut.result(timeout=20)
             except Exception:
+                # キャッシュが古くても返す（タイムアウト時のフォールバック）
+                if cached:
+                    return jsonify({"ticker": ticker, "data": cached["data"]})
                 return jsonify({"error": "chart timeout"}), 504
         if hist.empty: return jsonify({"error": "No data"}), 404
         data = [{"date": idx.strftime("%m/%d"),
                  "open": round(float(r["Open"]), 0), "high": round(float(r["High"]), 0),
                  "low": round(float(r["Low"]), 0), "close": round(float(r["Close"]), 0),
                  "volume": int(r["Volume"])} for idx, r in hist.iterrows()]
+        # キャッシュに保存
+        _cache["charts"][ticker] = {"data": data, "ts": time.time()}
         return jsonify({"ticker": ticker, "data": data})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
