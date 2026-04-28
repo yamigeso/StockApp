@@ -434,6 +434,19 @@ async function pollUntilReady(maxWait=300){
 
 // ─── 初回ロード ───
 async function initialLoad(){
+  // まず1回だけ即座に確認（キャッシュがあれば即描画・オーバーレイなし）
+  try{
+    const res = await fetch('/api/data');
+    if(res.ok){
+      const data = await res.json();
+      if(data && data.recommendations && Object.keys(data.recommendations).length > 0){
+        try{ renderAll(data); }catch(e){ console.error('[renderAll]', e); }
+        return; // オーバーレイ不要
+      }
+    }
+  }catch(e){ console.warn('[初回即時確認]', e); }
+
+  // データなし → オーバーレイを出してポーリング
   const ov = document.getElementById('loadingOverlay');
   ov.classList.add('show');
   try{

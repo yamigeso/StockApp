@@ -591,8 +591,17 @@ def api_refresh():
 
 @app.route("/api/chart/<ticker>")
 def api_chart(ticker):
+    def _fetch():
+        h = yf.Ticker(ticker).history(period="3mo", interval="1d")
+        return h
+
     try:
-        hist = yf.Ticker(ticker).history(period="3mo", interval="1d", timeout=20)
+        with ThreadPoolExecutor(max_workers=1) as ex:
+            fut = ex.submit(_fetch)
+            try:
+                hist = fut.result(timeout=15)
+            except Exception:
+                return jsonify({"error": "chart timeout"}), 504
         if hist.empty: return jsonify({"error": "No data"}), 404
         data = [{"date": idx.strftime("%m/%d"),
                  "open": round(float(r["Open"]), 0), "high": round(float(r["High"]), 0),
