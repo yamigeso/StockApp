@@ -371,16 +371,11 @@ def analyze_stock(ticker, display_name):
         vol_old = float(volume.iloc[-25:-5].mean()) if len(hist) >= 25 else vol_now
         vol_r   = vol_now / vol_old if vol_old > 0 else 1.0
 
-        # ── ファンダメンタル ──
-        info = {}
-        try: info = stock.info or {}
-        except: pass
-        per       = info.get("trailingPE")
-        pbr       = info.get("priceToBook")
-        div_yield = (info.get("dividendYield") or 0) * 100
-        week52h   = info.get("fiftyTwoWeekHigh", current)
-        week52l   = info.get("fiftyTwoWeekLow",  current)
+        # ── 52週高値・安値（historyから計算） ──
+        week52h = float(close.rolling(252).max().iloc[-1]) if len(close) >= 20 else float(close.max())
+        week52l = float(close.rolling(252).min().iloc[-1]) if len(close) >= 20 else float(close.min())
         pct_from_high = (current - week52h) / week52h * 100 if week52h else 0
+        per, pbr, div_yield = None, None, 0
 
         # ══ スコアリング（最大約20点） ══
         score, signals = 0, []
@@ -597,7 +592,7 @@ def api_refresh():
 @app.route("/api/chart/<ticker>")
 def api_chart(ticker):
     try:
-        hist = yf.Ticker(ticker).history(period="3mo", interval="1d")
+        hist = yf.Ticker(ticker).history(period="3mo", interval="1d", timeout=20)
         if hist.empty: return jsonify({"error": "No data"}), 404
         data = [{"date": idx.strftime("%m/%d"),
                  "open": round(float(r["Open"]), 0), "high": round(float(r["High"]), 0),

@@ -289,9 +289,8 @@ function stockCard(s,i,showSec){
       </div>
     </div>
     <div class="funda-row">
-      ${s.per!=null?`<span class="fchip">PER ${s.per}倍</span>`:''}
-      ${s.pbr!=null?`<span class="fchip">PBR ${s.pbr}倍</span>`:''}
-      ${s.div_yield!=null?`<span class="fchip">配当 ${s.div_yield}%</span>`:''}
+      ${s.vol_ratio!=null?`<span class="fchip">出来高比 ×${s.vol_ratio}</span>`:''}
+      ${s.bb_pct!=null?`<span class="fchip">BB ${Math.round(s.bb_pct*100)}%</span>`:''}
     </div>
     <div class="signals">${(s.signals||[]).map(sg=>`<div class="sig sig-${sg.type}">${sg.type==='positive'?'✅':sg.type==='negative'?'⚠️':'ℹ️'} ${sg.text}</div>`).join('')}</div>
     <div class="reason-box">${(s.reason||'').substring(0,140)}...</div>
@@ -347,10 +346,10 @@ function openModal(s){
     <span class="rchip ${rClass(s.return_3m)}">3ヶ月 ${s.return_3m>0?'+':''}${s.return_3m}%</span>`;
   document.getElementById('mReason').textContent=s.reason||'分析データなし';
   const funda=[];
-  if(s.per!=null) funda.push(`<span class="fchip">PER ${s.per}倍</span>`);
-  if(s.pbr!=null) funda.push(`<span class="fchip">PBR ${s.pbr}倍</span>`);
-  if(s.div_yield!=null) funda.push(`<span class="fchip">配当利回り ${s.div_yield}%</span>`);
   if(s.vol_ratio!=null) funda.push(`<span class="fchip">出来高比 ×${s.vol_ratio}</span>`);
+  if(s.bb_pct!=null) funda.push(`<span class="fchip">BBポジション ${Math.round(s.bb_pct*100)}%</span>`);
+  if(s.ma25!=null) funda.push(`<span class="fchip">25日MA ¥${Math.round(s.ma25).toLocaleString('ja-JP')}</span>`);
+  if(s.ma75!=null) funda.push(`<span class="fchip">75日MA ¥${Math.round(s.ma75).toLocaleString('ja-JP')}</span>`);
   document.getElementById('mFunda').innerHTML=funda.join('');
   document.getElementById('mSignals').innerHTML=(s.signals||[]).map(sg=>
     `<div class="sig sig-${sg.type}">${sg.type==='positive'?'✅':sg.type==='negative'?'⚠️':'ℹ️'} ${sg.text}</div>`).join('');
