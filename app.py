@@ -457,7 +457,8 @@ def analyze_stock(ticker, display_name):
 # ══════════════════════════════════════════════════════
 #  並列データ取得
 # ══════════════════════════════════════════════════════
-CACHE_FILE = "data_cache.json"
+# 絶対パスでキャッシュファイルを指定（実行ディレクトリに依存しない）
+CACHE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data_cache.json")
 _cache = {"recommendations": None, "themes": None, "last_update": None, "loading": False, "charts": {}}
 
 # ══════════════════════════════════════════════════════
@@ -465,13 +466,15 @@ _cache = {"recommendations": None, "themes": None, "last_update": None, "loading
 # ══════════════════════════════════════════════════════
 def save_cache_to_file():
     try:
-        with open(CACHE_FILE, "w", encoding="utf-8") as f:
+        tmp = CACHE_FILE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
             json.dump({
                 "recommendations": _cache["recommendations"],
                 "themes": _cache["themes"],
                 "last_update": _cache["last_update"],
             }, f, ensure_ascii=False)
-        print("[INFO] キャッシュをファイルに保存しました")
+        os.replace(tmp, CACHE_FILE)  # アトミックな書き換え（書き込み中断でファイルが壊れない）
+        print(f"[INFO] キャッシュ保存完了: {_cache['last_update']}")
     except Exception as e:
         print(f"[WARN] キャッシュ保存失敗: {e}")
 
@@ -489,38 +492,57 @@ def load_cache_from_file():
         print(f"[WARN] キャッシュ読み込み失敗: {e}")
     return False
 
+def get_cache_age_minutes():
+    """キャッシュの経過時間（分）を返す。不明な場合は999"""
+    try:
+        if _cache["last_update"]:
+            last = datetime.strptime(_cache["last_update"], "%Y-%m-%d %H:%M:%S")
+            return (datetime.now() - last).total_seconds() / 60
+    except:
+        pass
+    return 999
+
 def refresh_data():
     if _cache["loading"]: return
     _cache["loading"] = True
     print("[INFO] データ取得開始（並列処理）...")
     try:
         # 全セクターの全銘柄リストを収集（重複除去）
-        all_tasks = {}  # ticker -> (display_name, [sectors])
+        all_tasks = {}
         for sec, info in SECTORS.items():
             for t, n in info["stocks"].items():
                 if t not in all_tasks:
                     all_tasks[t] = (n, [])
                 all_tasks[t][1].append(sec)
 
-        # 並列取得（最大5スレッド・1銘柄30秒タイムアウト）
+        # 並列取得（10スレッド・合計480秒以内）
         stock_results = {}
-        with ThreadPoolExecutor(max_workers=5) as ex:
+        done = 0
+        with ThreadPoolExecutor(max_workers=10) as ex:
             futures = {ex.submit(analyze_stock, t, name): t
                        for t, (name, _) in all_tasks.items()}
-            done = 0
-            for future in as_completed(futures, timeout=600):
-                ticker = futures[future]
-                try:
-                    result = future.result(timeout=30)
-                except Exception:
-                    result = None
-                done += 1
-                if result:
-                    stock_results[ticker] = result
-                if done % 20 == 0:
-                    print(f"[INFO] {done}/{len(all_tasks)} 銘柄取得完了")
+            try:
+                for future in as_completed(futures, timeout=480):
+                    ticker = futures[future]
+                    try:
+                        result = future.result()
+                    except Exception:
+                        result = None
+                    done += 1
+                    if result:
+                        stock_results[ticker] = result
+                    if done % 20 == 0:
+                        print(f"[INFO] {done}/{len(all_tasks)} 銘柄取得完了")
+            except Exception:
+                # タイムアウトでも取得済みの分は使う
+                print(f"[WARN] タイムアウト: {done}/{len(all_tasks)} 銘柄のみ完了")
 
         print(f"[INFO] 取得成功: {len(stock_results)}/{len(all_tasks)} 銘柄")
+
+        # 30銘柄未満は信頼性が低いため保存しない
+        if len(stock_results) < 30:
+            print(f"[WARN] 取得銘柄が少なすぎるためキャッシュを更新しません")
+            return
 
         # セクター別に振り分け
         recs = {}
@@ -530,37 +552,43 @@ def refresh_data():
                          "stocks": sorted(results, key=lambda x: x["score"], reverse=True)}
         _cache["recommendations"] = recs
 
-        # ★ここでタイムスタンプを確定・保存（テーマ処理が失敗しても必ず更新される）
+        # タイムスタンプ確定・保存（テーマ処理より前に必ず実行）
         _cache["last_update"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         print(f"[INFO] 完了: {_cache['last_update']}")
         save_cache_to_file()
 
-        # テーマ別（同じく並列結果を使い回す）
-        all_theme_tickers = {}
-        for theme, info in THEMES.items():
-            for t, n in info["stocks"].items():
-                if t not in all_theme_tickers:
-                    all_theme_tickers[t] = n
+        # テーマ別（失敗しても上のsave_cache_to_fileは済んでいる）
+        try:
+            all_theme_tickers = {}
+            for theme, info in THEMES.items():
+                for t, n in info["stocks"].items():
+                    if t not in all_theme_tickers:
+                        all_theme_tickers[t] = n
 
-        # テーマにしかない銘柄を追加取得
-        extra = {t: n for t, n in all_theme_tickers.items() if t not in stock_results}
-        if extra:
-            with ThreadPoolExecutor(max_workers=5) as ex:
-                futures = {ex.submit(analyze_stock, t, n): t for t, n in extra.items()}
-                for future in as_completed(futures, timeout=300):
+            extra = {t: n for t, n in all_theme_tickers.items() if t not in stock_results}
+            if extra:
+                with ThreadPoolExecutor(max_workers=5) as ex:
+                    futures2 = {ex.submit(analyze_stock, t, n): t for t, n in extra.items()}
                     try:
-                        r = future.result(timeout=30)
+                        for future in as_completed(futures2, timeout=120):
+                            try:
+                                r = future.result()
+                            except Exception:
+                                r = None
+                            if r:
+                                stock_results[futures2[future]] = r
                     except Exception:
-                        r = None
-                    if r:
-                        stock_results[futures[future]] = r
+                        pass
 
-        themes = {}
-        for theme, info in THEMES.items():
-            results = [stock_results[t] for t in info["stocks"] if t in stock_results]
-            themes[theme] = {"icon": info["icon"], "desc": info["desc"],
-                             "stocks": sorted(results, key=lambda x: x["score"], reverse=True)}
-        _cache["themes"] = themes
+            themes = {}
+            for theme, info in THEMES.items():
+                results = [stock_results[t] for t in info["stocks"] if t in stock_results]
+                themes[theme] = {"icon": info["icon"], "desc": info["desc"],
+                                 "stocks": sorted(results, key=lambda x: x["score"], reverse=True)}
+            _cache["themes"] = themes
+        except Exception as te:
+            print(f"[WARN] テーマ処理エラー（無視）: {te}")
+
     except Exception as e:
         print(f"[ERROR] refresh_data: {e}")
         import traceback; traceback.print_exc()
@@ -619,9 +647,9 @@ def api_chart(ticker):
         return jsonify({"error": str(e)}), 500
 
 def background_scheduler():
-    """10分ごとに自動データ更新（クライアントには通知しない）"""
+    """30分ごとに自動データ更新"""
     while True:
-        time.sleep(10 * 60)
+        time.sleep(30 * 60)
         print("[SCHEDULER] 定期更新開始...")
         refresh_data()
 
@@ -646,17 +674,19 @@ def startup():
     print("  📈 株式おすすめアプリ v3 起動中（東証専用）")
     print(f"  分析対象: {sum(len(v['stocks']) for v in SECTORS.values())} 銘柄")
     print("=" * 52)
-    # まずファイルキャッシュから読み込む（即座に提供できるように）
-    if load_cache_from_file():
-        print("[INFO] キャッシュから即座にデータを提供します")
-        # バックグラウンドで最新データを取得
-        threading.Thread(target=refresh_data, daemon=True).start()
+    has_cache = load_cache_from_file()
+    if has_cache:
+        age = get_cache_age_minutes()
+        print(f"[INFO] キャッシュ年齢: {age:.0f}分")
+        if age > 60:
+            print("[INFO] キャッシュが古いためバックグラウンドで更新開始")
+            threading.Thread(target=refresh_data, daemon=True).start()
+        else:
+            print("[INFO] キャッシュは新鮮です。即時更新をスキップ")
     else:
         print("[INFO] キャッシュなし → 初回データ取得を開始します")
         threading.Thread(target=refresh_data, daemon=True).start()
-    # 定期更新スケジューラー起動
     threading.Thread(target=background_scheduler, daemon=True).start()
-    # 自己pingでスリープ防止
     threading.Thread(target=self_ping, daemon=True).start()
 
 startup()
