@@ -337,8 +337,10 @@ def generate_reason(d):
 
 def analyze_stock(ticker, display_name):
     try:
-        stock = yf.Ticker(ticker)
-        hist  = stock.history(period="6mo", timeout=20)
+        sess = requests.Session()
+        sess.request = functools.partial(sess.request, timeout=10)
+        stock = yf.Ticker(ticker, session=sess)
+        hist  = stock.history(period="6mo")
         if hist.empty or len(hist) < 20:
             return None
 
