@@ -416,7 +416,7 @@ function renderAll(data){
 
 // ─── データ取得ユーティリティ ───
 async function fetchData(){
-  const res = await fetch('/api/data');
+  const res = await fetch('/api/data', {cache:'no-store'});
   if(!res.ok) throw new Error('HTTP '+res.status);
   const data = await res.json();
   if(!data.recommendations || Object.keys(data.recommendations).length === 0)

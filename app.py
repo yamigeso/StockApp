@@ -2,15 +2,17 @@
 # -*- coding: utf-8 -*-
 """株式おすすめアプリ v3 - 東証専用 / 全銘柄並列取得"""
 
-from flask import Flask, jsonify, render_template
+from flask import Flask, jsonify, render_template, make_response
 import yfinance as yf
 import numpy as np
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 import json
 import os
 import time
+
+JST = timezone(timedelta(hours=9))
 
 app = Flask(__name__)
 
@@ -552,8 +554,8 @@ def refresh_data():
                          "stocks": sorted(results, key=lambda x: x["score"], reverse=True)}
         _cache["recommendations"] = recs
 
-        # タイムスタンプ確定・保存（テーマ処理より前に必ず実行）
-        _cache["last_update"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        # タイムスタンプ確定・保存（テーマ処理より前に必ず実行・JST時刻）
+        _cache["last_update"] = datetime.now(JST).strftime("%Y-%m-%d %H:%M JST")
         print(f"[INFO] 完了: {_cache['last_update']}")
         save_cache_to_file()
 
@@ -608,10 +610,19 @@ def api_data():
     if not _cache["recommendations"] and not _cache["loading"]:
         threading.Thread(target=refresh_data, daemon=True).start()
     if _cache["loading"] and not _cache["recommendations"]:
-        return jsonify({"loading": True})
-    # キャッシュあればすぐ返す（取得中でも古いデータを返す）
-    return jsonify({"recommendations": _cache["recommendations"], "themes": _cache["themes"],
-                    "last_update": _cache["last_update"], "loading": False})
+        resp = make_response(jsonify({"loading": True}))
+    else:
+        resp = make_response(jsonify({
+            "recommendations": _cache["recommendations"],
+            "themes": _cache["themes"],
+            "last_update": _cache["last_update"],
+            "loading": False
+        }))
+    # ブラウザキャッシュを無効化（常に最新データを取得させる）
+    resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    resp.headers["Pragma"] = "no-cache"
+    resp.headers["Expires"] = "0"
+    return resp
 
 
 @app.route("/api/chart/<ticker>")
