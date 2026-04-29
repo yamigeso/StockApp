@@ -30,7 +30,7 @@ SECTORS = {
             "6504.T":"富士電機", "6503.T":"三菱電機",
             "6954.T":"ファナック", "6506.T":"安川電機",
             "4062.T":"イビデン", "6525.T":"KOKUSAI ELECTRIC",
-            "6756.T":"日立国際電気", "6981.T":"村田製作所",
+            "6981.T":"村田製作所",
             "6976.T":"太陽誘電",
         },
     },
@@ -147,7 +147,7 @@ SECTORS = {
             "5401.T":"日本製鉄", "5411.T":"JFEホールディングス",
             "5713.T":"住友金属鉱山", "5802.T":"住友電気工業",
             "5101.T":"横浜ゴム", "4005.T":"住友化学",
-            "4042.T":"東ソー", "4201.T":"日本合成化学工業",
+            "4042.T":"東ソー",
             "5202.T":"日本板硝子", "5301.T":"東海カーボン",
             "4901.T":"富士フイルムHD",
         },
@@ -161,8 +161,7 @@ SECTORS = {
             "2651.T":"ローソン", "8028.T":"ファミリーマート",
             "3086.T":"Jフロントリテイリング", "3099.T":"三越伊勢丹HD",
             "2670.T":"ABCマート", "7716.T":"ナカニシ",
-            "9948.T":"アークス", "3337.T":"丸文",
-            "2758.T":"テーオーシー", "7453.T":"良品計画",
+            "9948.T":"アークス", "7453.T":"良品計画",
             "3092.T":"ZOZO",
         },
     },
@@ -513,7 +512,8 @@ def get_cache_age_minutes():
 def refresh_data():
     if _cache["loading"]: return
     _cache["loading"] = True
-    print("[INFO] データ取得開始（並列処理）...")
+    start_time = datetime.now(JST)
+    print(f"[INFO] データ取得開始（並列処理）... {start_time.strftime('%H:%M:%S JST')}")
     try:
         # 全セクターの全銘柄リストを収集（重複除去）
         all_tasks = {}
@@ -523,10 +523,11 @@ def refresh_data():
                     all_tasks[t] = (n, [])
                 all_tasks[t][1].append(sec)
 
-        # 並列取得（10スレッド・合計480秒以内）
+        # 並列取得（5スレッド・合計480秒以内）
+        # ※ワーカー数を減らすことでYahoo Financeのレート制限を回避
         stock_results = {}
         done = 0
-        with ThreadPoolExecutor(max_workers=10) as ex:
+        with ThreadPoolExecutor(max_workers=5) as ex:
             futures = {ex.submit(analyze_stock, t, name): t
                        for t, (name, _) in all_tasks.items()}
             try:
@@ -539,17 +540,18 @@ def refresh_data():
                     done += 1
                     if result:
                         stock_results[ticker] = result
-                    if done % 20 == 0:
-                        print(f"[INFO] {done}/{len(all_tasks)} 銘柄取得完了")
+                    if done % 10 == 0:
+                        print(f"[INFO] {done}/{len(all_tasks)} 銘柄完了 / 有効:{len(stock_results)}")
             except Exception:
                 # タイムアウトでも取得済みの分は使う
-                print(f"[WARN] タイムアウト: {done}/{len(all_tasks)} 銘柄のみ完了")
+                print(f"[WARN] タイムアウト: {done}/{len(all_tasks)} 銘柄 / 有効:{len(stock_results)}")
 
-        print(f"[INFO] 取得成功: {len(stock_results)}/{len(all_tasks)} 銘柄")
+        elapsed = (datetime.now(JST) - start_time).total_seconds()
+        print(f"[INFO] 取得成功: {len(stock_results)}/{len(all_tasks)} 銘柄 ({elapsed:.0f}秒)")
 
         # 30銘柄未満は信頼性が低いため保存しない
         if len(stock_results) < 30:
-            print(f"[WARN] 取得銘柄が少なすぎるためキャッシュを更新しません")
+            print(f"[WARN] 取得銘柄が少なすぎます({len(stock_results)}件)。キャッシュ更新スキップ")
             return
 
         # セクター別に振り分け
