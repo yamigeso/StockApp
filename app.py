@@ -11,8 +11,6 @@ import threading
 import json
 import os
 import time
-import requests
-import functools
 
 app = Flask(__name__)
 
@@ -337,9 +335,7 @@ def generate_reason(d):
 
 def analyze_stock(ticker, display_name):
     try:
-        sess = requests.Session()
-        sess.request = functools.partial(sess.request, timeout=10)
-        stock = yf.Ticker(ticker, session=sess)
+        stock = yf.Ticker(ticker)
         hist  = stock.history(period="6mo")
         if hist.empty or len(hist) < 20:
             return None
@@ -598,10 +594,7 @@ def api_chart(ticker):
         return jsonify({"ticker": ticker, "data": cached["data"]})
 
     def _fetch():
-        # カスタムセッションで全HTTPリクエストに10秒タイムアウトを設定
-        sess = requests.Session()
-        sess.request = functools.partial(sess.request, timeout=10)
-        h = yf.Ticker(ticker, session=sess).history(period="3mo", interval="1d")
+        h = yf.Ticker(ticker).history(period="3mo", interval="1d")
         return h
 
     try:
