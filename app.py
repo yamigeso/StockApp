@@ -532,6 +532,11 @@ def refresh_data():
                          "stocks": sorted(results, key=lambda x: x["score"], reverse=True)}
         _cache["recommendations"] = recs
 
+        # ★ここでタイムスタンプを確定・保存（テーマ処理が失敗しても必ず更新される）
+        _cache["last_update"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        print(f"[INFO] 完了: {_cache['last_update']}")
+        save_cache_to_file()
+
         # テーマ別（同じく並列結果を使い回す）
         all_theme_tickers = {}
         for theme, info in THEMES.items():
@@ -558,10 +563,6 @@ def refresh_data():
             themes[theme] = {"icon": info["icon"], "desc": info["desc"],
                              "stocks": sorted(results, key=lambda x: x["score"], reverse=True)}
         _cache["themes"] = themes
-
-        _cache["last_update"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        print(f"[INFO] 完了: {_cache['last_update']}")
-        save_cache_to_file()
     except Exception as e:
         print(f"[ERROR] refresh_data: {e}")
         import traceback; traceback.print_exc()
