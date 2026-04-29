@@ -409,9 +409,11 @@ function renderAll(data){
   renderSectorTabs(data.recommendations);
   renderStocks(data.recommendations);
   renderSummary(data.recommendations);
-  // テーマページ
-  populateThemeDd(data.themes);
-  renderThemePage();
+  // テーマページ（themes が null/undefined の場合はスキップ）
+  if(data.themes && Object.keys(data.themes).length > 0){
+    populateThemeDd(data.themes);
+    renderThemePage();
+  }
 }
 
 // ─── データ取得ユーティリティ ───

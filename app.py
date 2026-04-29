@@ -338,7 +338,7 @@ def generate_reason(d):
 def analyze_stock(ticker, display_name):
     try:
         stock = yf.Ticker(ticker)
-        hist  = stock.history(period="6mo")
+        hist  = stock.history(period="6mo", timeout=20)
         if hist.empty or len(hist) < 20:
             return None
 
@@ -498,8 +498,14 @@ def get_cache_age_minutes():
     """キャッシュの経過時間（分）を返す。不明な場合は999"""
     try:
         if _cache["last_update"]:
-            last = datetime.strptime(_cache["last_update"], "%Y-%m-%d %H:%M:%S")
-            return (datetime.now() - last).total_seconds() / 60
+            s = _cache["last_update"].replace(" JST", "").strip()
+            # "2026-04-29 19:33" or "2026-04-29 19:33:14" 両フォーマット対応
+            for fmt in ("%Y-%m-%d %H:%M", "%Y-%m-%d %H:%M:%S"):
+                try:
+                    last = datetime.strptime(s, fmt)
+                    return (datetime.now(JST).replace(tzinfo=None) - last).total_seconds() / 60
+                except ValueError:
+                    continue
     except:
         pass
     return 999
@@ -588,6 +594,8 @@ def refresh_data():
                 themes[theme] = {"icon": info["icon"], "desc": info["desc"],
                                  "stocks": sorted(results, key=lambda x: x["score"], reverse=True)}
             _cache["themes"] = themes
+            save_cache_to_file()  # themes含めて再保存
+            print(f"[INFO] テーマ保存完了: {len(themes)} テーマ")
         except Exception as te:
             print(f"[WARN] テーマ処理エラー（無視）: {te}")
 
