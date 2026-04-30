@@ -658,20 +658,45 @@ def api_chart(ticker):
     cached = _cache["charts"].get(ticker)
     if cached and time.time() - cached["ts"] < 3600:
         return jsonify({"ticker": ticker, "data": cached["data"]})
-    try:
-        hist = yf.Ticker(ticker).history(period="3mo", interval="1d", timeout=15)
-        if hist.empty:
-            if cached: return jsonify({"ticker": ticker, "data": cached["data"]})
-            return jsonify({"error": "No data"}), 404
-        data = [{"date": idx.strftime("%m/%d"),
-                 "open": round(float(r["Open"]), 0), "high": round(float(r["High"]), 0),
-                 "low": round(float(r["Low"]), 0), "close": round(float(r["Close"]), 0),
-                 "volume": int(r["Volume"])} for idx, r in hist.iterrows()]
-        _cache["charts"][ticker] = {"data": data, "ts": time.time()}
-        return jsonify({"ticker": ticker, "data": data})
-    except Exception as e:
-        if cached: return jsonify({"ticker": ticker, "data": cached["data"]})
-        return jsonify({"error": str(e)}), 500
+
+    # yfinanceの_cookie_lockデッドロック対策: デーモンスレッドで実行し20秒でタイムアウト
+    result = [None]
+    fetch_error = [None]
+
+    def fetch():
+        try:
+            result[0] = yf.Ticker(ticker).history(period="3mo", interval="1d", timeout=15)
+        except Exception as e:
+            fetch_error[0] = e
+
+    t = threading.Thread(target=fetch, daemon=True)
+    t.start()
+    t.join(timeout=20)
+
+    if t.is_alive():
+        # スレッドがまだ実行中 = デッドロック or 遅延
+        print(f"[WARN] chart fetch timeout: {ticker}", flush=True)
+        if cached:
+            return jsonify({"ticker": ticker, "data": cached["data"]})
+        return jsonify({"error": "チャートデータの取得がタイムアウトしました"}), 504
+
+    if fetch_error[0] is not None:
+        if cached:
+            return jsonify({"ticker": ticker, "data": cached["data"]})
+        return jsonify({"error": str(fetch_error[0])}), 500
+
+    hist = result[0]
+    if hist is None or hist.empty:
+        if cached:
+            return jsonify({"ticker": ticker, "data": cached["data"]})
+        return jsonify({"error": "No data"}), 404
+
+    data = [{"date": idx.strftime("%m/%d"),
+             "open": round(float(r["Open"]), 0), "high": round(float(r["High"]), 0),
+             "low": round(float(r["Low"]), 0), "close": round(float(r["Close"]), 0),
+             "volume": int(r["Volume"])} for idx, r in hist.iterrows()]
+    _cache["charts"][ticker] = {"data": data, "ts": time.time()}
+    return jsonify({"ticker": ticker, "data": data})
 
 def background_scheduler():
     """30分ごとに自動データ更新"""
