@@ -542,15 +542,16 @@ def refresh_data():
                     all_tasks[t] = (n, [])
                 all_tasks[t][1].append(sec)
 
-        # 並列取得（5スレッド・合計480秒以内）
-        # ※ワーカー数を減らすことでYahoo Financeのレート制限を回避
+        # 並列取得（5スレッド・合計120秒以内）
+        # with構文を使わずshutdown(wait=False)でタイムアウト後即終了
         stock_results = {}
         done = 0
-        with ThreadPoolExecutor(max_workers=5) as ex:
+        ex = ThreadPoolExecutor(max_workers=5)
+        try:
             futures = {ex.submit(analyze_stock, t, name): t
                        for t, (name, _) in all_tasks.items()}
             try:
-                for future in as_completed(futures, timeout=480):
+                for future in as_completed(futures, timeout=120):
                     ticker = futures[future]
                     try:
                         result = future.result()
@@ -562,8 +563,9 @@ def refresh_data():
                     if done % 10 == 0:
                         print(f"[INFO] {done}/{len(all_tasks)} 銘柄完了 / 有効:{len(stock_results)}", flush=True)
             except Exception:
-                # タイムアウトでも取得済みの分は使う
-                print(f"[WARN] タイムアウト: {done}/{len(all_tasks)} 銘柄 / 有効:{len(stock_results)}")
+                print(f"[WARN] タイムアウト: {done}/{len(all_tasks)} 銘柄 / 有効:{len(stock_results)}", flush=True)
+        finally:
+            ex.shutdown(wait=False, cancel_futures=True)  # 残りfutureを待たずに即終了
 
         elapsed = (datetime.now(JST) - start_time).total_seconds()
         print(f"[INFO] 取得成功: {len(stock_results)}/{len(all_tasks)} 銘柄 ({elapsed:.0f}秒)", flush=True)
@@ -596,10 +598,11 @@ def refresh_data():
 
             extra = {t: n for t, n in all_theme_tickers.items() if t not in stock_results}
             if extra:
-                with ThreadPoolExecutor(max_workers=5) as ex:
-                    futures2 = {ex.submit(analyze_stock, t, n): t for t, n in extra.items()}
+                ex2 = ThreadPoolExecutor(max_workers=5)
+                try:
+                    futures2 = {ex2.submit(analyze_stock, t, n): t for t, n in extra.items()}
                     try:
-                        for future in as_completed(futures2, timeout=120):
+                        for future in as_completed(futures2, timeout=60):
                             try:
                                 r = future.result()
                             except Exception:
@@ -608,6 +611,8 @@ def refresh_data():
                                 stock_results[futures2[future]] = r
                     except Exception:
                         pass
+                finally:
+                    ex2.shutdown(wait=False, cancel_futures=True)
 
             themes = {}
             for theme, info in THEMES.items():
