@@ -681,6 +681,14 @@ def api_status():
         "cache_age_min": round(get_cache_age_minutes(), 1),
     })
 
+@app.route("/api/refresh")
+def api_refresh():
+    """手動でデータ更新をトリガーするエンドポイント"""
+    if _cache["loading"]:
+        return jsonify({"status": "already_loading", "message": "更新中です。しばらくお待ちください。"})
+    threading.Thread(target=refresh_data, daemon=True).start()
+    return jsonify({"status": "started", "message": "データ更新を開始しました（約1分かかります）"})
+
 @app.route("/api/chart/<ticker>")
 def api_chart(ticker):
     # キャッシュチェック（1時間有効）
