@@ -1,6 +1,10 @@
-#\!/usr/bin/env python3
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """株式おすすめアプリ v3 - 東証専用 / 全銘柄並列取得"""
+
+import sys
+# ログをリアルタイムで出力（バッファリング無効化）
+sys.stdout.reconfigure(line_buffering=True)
 
 from flask import Flask, jsonify, render_template, make_response
 import yfinance as yf
@@ -54,7 +58,7 @@ SECTORS = {
         "stocks": {
             "9432.T":"NTT", "9433.T":"KDDI",
             "9434.T":"ソフトバンク", "9414.T":"日本BS放送",
-            "9437.T":"NTTドコモ(参考)", "9603.T":"エイチ・アイ・エス",
+            "9603.T":"エイチ・アイ・エス",
             "4689.T":"LINEヤフー", "2440.T":"ぐるなび",
             "3632.T":"グリー", "4385.T":"メルカリ",
             "4911.T":"資生堂", "3092.T":"ZOZO",
@@ -84,7 +88,7 @@ SECTORS = {
             "4568.T":"第一三共", "4578.T":"大塚HD",
             "4507.T":"塩野義製薬", "4151.T":"協和キリン",
             "4543.T":"テルモ", "7741.T":"HOYA",
-            "4021.T":"日産化学", "4185.T":"JSR",
+            "4021.T":"日産化学",
             "4188.T":"三菱ケミカルグループ", "4004.T":"レゾナック",
             "4911.T":"資生堂",
         },
@@ -111,7 +115,7 @@ SECTORS = {
             "8725.T":"MS&ADインシュアランスG", "8630.T":"SOMPOホールディングス",
             "8253.T":"クレディセゾン", "8795.T":"T&Dホールディングス",
             "8698.T":"マネックスG", "8473.T":"SBIホールディングス",
-            "8096.T":"兼松エレクトロニクス", "7148.T":"FPG",
+            "7148.T":"FPG",
         },
     },
     "仮想通貨・暗号資産": {
@@ -158,7 +162,6 @@ SECTORS = {
         "stocks": {
             "9983.T":"ファーストリテイリング", "8267.T":"イオン",
             "3382.T":"セブン&iHD", "9843.T":"ニトリHD",
-            "2651.T":"ローソン", "8028.T":"ファミリーマート",
             "3086.T":"Jフロントリテイリング", "3099.T":"三越伊勢丹HD",
             "2670.T":"ABCマート", "7716.T":"ナカニシ",
             "9948.T":"アークス", "7453.T":"良品計画",
@@ -204,7 +207,6 @@ SECTORS = {
             "4324.T":"電通グループ", "2471.T":"エスプール",
             "3668.T":"コロプラ", "3632.T":"グリー",
             "4751.T":"サイバーエージェント", "2121.T":"ミクシィ",
-            "4348.T":"インフォコム",
         },
     },
     "輸送・物流": {
@@ -253,7 +255,7 @@ THEMES = {
     },
     "防衛・宇宙": {
         "icon": "🚀", "desc": "防衛費増額・宇宙開発恩恵銘柄",
-        "stocks": {"7011.T":"三菱重工","7013.T":"IHI","7012.T":"川崎重工","6502.T":"東芝","6701.T":"NEC","6702.T":"富士通","7752.T":"リコー","6367.T":"ダイキン","1801.T":"大成建設"},
+        "stocks": {"7011.T":"三菱重工","7013.T":"IHI","7012.T":"川崎重工","6701.T":"NEC","6702.T":"富士通","7752.T":"リコー","6367.T":"ダイキン","1801.T":"大成建設"},
     },
     "バイオ・創薬": {
         "icon": "🧬", "desc": "バイオテクノロジー・創薬・医療機器",
@@ -513,7 +515,7 @@ def refresh_data():
     if _cache["loading"]: return
     _cache["loading"] = True
     start_time = datetime.now(JST)
-    print(f"[INFO] データ取得開始（並列処理）... {start_time.strftime('%H:%M:%S JST')}")
+    print(f"[INFO] データ取得開始（並列処理）... {start_time.strftime('%H:%M:%S JST')}", flush=True)
     try:
         # 全セクターの全銘柄リストを収集（重複除去）
         all_tasks = {}
@@ -541,17 +543,17 @@ def refresh_data():
                     if result:
                         stock_results[ticker] = result
                     if done % 10 == 0:
-                        print(f"[INFO] {done}/{len(all_tasks)} 銘柄完了 / 有効:{len(stock_results)}")
+                        print(f"[INFO] {done}/{len(all_tasks)} 銘柄完了 / 有効:{len(stock_results)}", flush=True)
             except Exception:
                 # タイムアウトでも取得済みの分は使う
                 print(f"[WARN] タイムアウト: {done}/{len(all_tasks)} 銘柄 / 有効:{len(stock_results)}")
 
         elapsed = (datetime.now(JST) - start_time).total_seconds()
-        print(f"[INFO] 取得成功: {len(stock_results)}/{len(all_tasks)} 銘柄 ({elapsed:.0f}秒)")
+        print(f"[INFO] 取得成功: {len(stock_results)}/{len(all_tasks)} 銘柄 ({elapsed:.0f}秒)", flush=True)
 
-        # 30銘柄未満は信頼性が低いため保存しない
-        if len(stock_results) < 30:
-            print(f"[WARN] 取得銘柄が少なすぎます({len(stock_results)}件)。キャッシュ更新スキップ")
+        # 15銘柄未満は信頼性が低いため保存しない
+        if len(stock_results) < 15:
+            print(f"[WARN] 取得銘柄が少なすぎます({len(stock_results)}件)。キャッシュ更新スキップ", flush=True)
             return
 
         # セクター別に振り分け
@@ -634,6 +636,21 @@ def api_data():
     resp.headers["Expires"] = "0"
     return resp
 
+
+@app.route("/api/status")
+def api_status():
+    """サーバー状態確認用エンドポイント"""
+    has_recs = _cache["recommendations"] is not None
+    has_themes = _cache["themes"] is not None
+    stock_count = sum(len(v["stocks"]) for v in _cache["recommendations"].values()) if has_recs else 0
+    return jsonify({
+        "has_data": has_recs,
+        "has_themes": has_themes,
+        "stock_count": stock_count,
+        "last_update": _cache["last_update"],
+        "is_loading": _cache["loading"],
+        "cache_age_min": round(get_cache_age_minutes(), 1),
+    })
 
 @app.route("/api/chart/<ticker>")
 def api_chart(ticker):
