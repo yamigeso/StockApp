@@ -421,6 +421,7 @@ async function fetchData(){
   const res = await fetch('/api/data', {cache:'no-store'});
   if(!res.ok) throw new Error('HTTP '+res.status);
   const data = await res.json();
+  if(data.error) throw new Error('fetch_error'); // サーバー側取得失敗
   if(!data.recommendations || Object.keys(data.recommendations).length === 0)
     throw new Error('no data');
   return data;
@@ -432,8 +433,15 @@ async function initialLoad(){
     const data = await fetchData();
     renderAll(data);
   }catch(e){
+    // 即座に失敗（fetch_error）の場合はスピナーなしでエラー表示
+    if(e.message === 'fetch_error'){
+      document.getElementById('stocksGrid').innerHTML=
+        '<div class="empty">⚠️ データ取得に失敗しました。サーバーが再試行中です。しばらくお待ちください（数分後に再読み込みしてください）</div>';
+      return;
+    }
     // キャッシュなし（サーバー起動直後）→ オーバーレイを出して待つ
     const ov = document.getElementById('loadingOverlay');
+    const ovTxt = ov.querySelector('.loading-txt');
     ov.classList.add('show');
     const start = Date.now();
     while(true){
@@ -443,7 +451,16 @@ async function initialLoad(){
         renderAll(data);
         ov.classList.remove('show');
         return;
-      }catch(_){}
+      }catch(e2){
+        if(e2.message === 'fetch_error'){
+          ov.classList.remove('show');
+          document.getElementById('stocksGrid').innerHTML=
+            '<div class="empty">⚠️ データ取得に失敗しました。サーバーが再試行中です。しばらくお待ちください（数分後に再読み込みしてください）</div>';
+          return;
+        }
+      }
+      const elapsed = Math.round((Date.now()-start)/1000);
+      if(ovTxt) ovTxt.textContent = `東証全銘柄を分析中... (${elapsed}秒経過)`;
       if(Date.now()-start > 300000){ // 5分でタイムアウト
         ov.classList.remove('show');
         document.getElementById('stocksGrid').innerHTML=

@@ -462,7 +462,7 @@ def analyze_stock(ticker, display_name):
 # ══════════════════════════════════════════════════════
 # 絶対パスでキャッシュファイルを指定（実行ディレクトリに依存しない）
 CACHE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data_cache.json")
-_cache = {"recommendations": None, "themes": None, "last_update": None, "loading": False, "charts": {}}
+_cache = {"recommendations": None, "themes": None, "last_update": None, "loading": False, "loading_since": 0, "charts": {}}
 
 # ══════════════════════════════════════════════════════
 #  ファイルキャッシュ（サーバー再起動対応）
@@ -514,6 +514,7 @@ def get_cache_age_minutes():
 def refresh_data():
     if _cache["loading"]: return
     _cache["loading"] = True
+    _cache["loading_since"] = time.time()
     start_time = datetime.now(JST)
     print(f"[INFO] データ取得開始（並列処理）... {start_time.strftime('%H:%M:%S JST')}", flush=True)
     try:
@@ -618,18 +619,30 @@ def index():
 
 @app.route("/api/data")
 def api_data():
+    # ロード中が600秒以上続いている場合はスタックと判断してリセット
+    if _cache["loading"] and (time.time() - _cache["loading_since"]) > 600:
+        print("[WARN] refresh_data が600秒以上応答なし。loading フラグをリセット", flush=True)
+        _cache["loading"] = False
+
     # キャッシュなし かつ 取得中でもない → バックグラウンドで取得開始
     if not _cache["recommendations"] and not _cache["loading"]:
         threading.Thread(target=refresh_data, daemon=True).start()
-    if _cache["loading"] and not _cache["recommendations"]:
-        resp = make_response(jsonify({"loading": True}))
-    else:
+
+    # データあり、またはロード中（既存データあり）の場合は即座にデータ返却
+    if _cache["recommendations"]:
         resp = make_response(jsonify({
             "recommendations": _cache["recommendations"],
             "themes": _cache["themes"],
             "last_update": _cache["last_update"],
-            "loading": False
+            "loading": _cache["loading"],  # バックグラウンド更新中かどうか
         }))
+    elif _cache["loading"]:
+        # データ未取得かつ初回ロード中
+        resp = make_response(jsonify({"loading": True}))
+    else:
+        # データなし・ロードもしていない（取得失敗直後）→ エラー状態
+        resp = make_response(jsonify({"loading": False, "error": True}))
+
     # ブラウザキャッシュを無効化（常に最新データを取得させる）
     resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     resp.headers["Pragma"] = "no-cache"
