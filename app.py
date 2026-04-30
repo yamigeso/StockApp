@@ -689,10 +689,23 @@ def api_status():
 @app.route("/api/refresh")
 def api_refresh():
     """手動でデータ更新をトリガーするエンドポイント"""
+    # 600秒以上ローディング中の場合はスタックと判断してリセット
+    if _cache["loading"] and (time.time() - _cache["loading_since"]) > 600:
+        print("[WARN] /api/refresh: loading が600秒以上スタック。強制リセット", flush=True)
+        _cache["loading"] = False
     if _cache["loading"]:
-        return jsonify({"status": "already_loading", "message": "更新中です。しばらくお待ちください。"})
+        elapsed = int(time.time() - _cache["loading_since"])
+        return jsonify({"status": "already_loading", "message": f"更新中です（{elapsed}秒経過）。しばらくお待ちください。"})
     threading.Thread(target=refresh_data, daemon=True).start()
     return jsonify({"status": "started", "message": "データ更新を開始しました（約1分かかります）"})
+
+@app.route("/api/force-refresh")
+def api_force_refresh():
+    """ローディングフラグを強制リセットして更新をトリガー（デバッグ用）"""
+    was_loading = _cache["loading"]
+    _cache["loading"] = False
+    threading.Thread(target=refresh_data, daemon=True).start()
+    return jsonify({"status": "started", "was_loading": was_loading, "message": "強制リセット＋更新開始しました"})
 
 @app.route("/api/chart/<ticker>")
 def api_chart(ticker):
