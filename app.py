@@ -337,10 +337,26 @@ def generate_reason(d):
 
 
 def analyze_stock(ticker, display_name):
+    # _cookie_lockデッドロック対策: デーモンスレッドで実行し25秒でタイムアウト
+    hist_result = [None]
+    hist_error  = [None]
+    def _fetch_hist():
+        try:
+            hist_result[0] = yf.Ticker(ticker).history(period="6mo", timeout=20)
+        except Exception as e:
+            hist_error[0] = e
+    t = threading.Thread(target=_fetch_hist, daemon=True)
+    t.start()
+    t.join(timeout=25)
+    if t.is_alive():
+        print(f"[SKIP] {ticker}: fetch timeout (deadlock?)", flush=True)
+        return None
+    if hist_error[0] is not None:
+        print(f"[SKIP] {ticker}: {hist_error[0]}")
+        return None
+    hist = hist_result[0]
     try:
-        stock = yf.Ticker(ticker)
-        hist  = stock.history(period="6mo", timeout=20)
-        if hist.empty or len(hist) < 20:
+        if hist is None or hist.empty or len(hist) < 20:
             return None
 
         close   = hist["Close"]
