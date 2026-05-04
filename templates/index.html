@@ -403,7 +403,8 @@ function renderAll(data){
   allData = data;
   _stockIdx = 0; // インデックスリセット
   const lu = document.getElementById('lastUpd');
-  lu.textContent = data.last_update ? `更新: ${data.last_update}` : '';
+  const updLabel = data.loading ? `更新: ${data.last_update} 🔄` : `更新: ${data.last_update}`;
+  lu.textContent = data.last_update ? updLabel : '';
   lu.dataset.ts = data.last_update || '';
   // おすすめ株（セクタータブ＋グリッド＋サマリー）
   renderSectorTabs(data.recommendations);
@@ -418,7 +419,7 @@ function renderAll(data){
 
 // ─── データ取得ユーティリティ ───
 async function fetchData(){
-  const res = await fetch('/api/data', {cache:'no-store'});
+  const res = await fetch('/api/data?_='+Date.now(), {cache:'no-store'});
   if(!res.ok) throw new Error('HTTP '+res.status);
   const data = await res.json();
   if(data.error) throw new Error('fetch_error'); // サーバー側取得失敗
@@ -471,13 +472,22 @@ async function initialLoad(){
   }
 }
 
-// ─── 10分ごとにサーバーのデータを確認（タイムスタンプが変わったら再描画）───
+// ─── 10分ごとにサーバーのデータを確認（タイムスタンプが変わったらリロード）───
+// ※ データ更新はサーバー側が自動実施。クライアントは読むだけ。
 async function silentRefresh(){
   try{
     const data = await fetchData();
     const newTs = data.last_update || '';
     const curTs = document.getElementById('lastUpd').dataset.ts || '';
-    if(newTs !== curTs) renderAll(data); // 変わってたら静かに更新
+    // バックグラウンド更新中はインジケーター表示
+    const lu = document.getElementById('lastUpd');
+    if(data.last_update){
+      lu.textContent = data.loading ? `更新: ${data.last_update} 🔄` : `更新: ${data.last_update}`;
+      lu.dataset.ts = data.last_update;
+    }
+    if(newTs && newTs !== curTs){
+      location.reload(); // データが変わったらページ全体をリロード（確実に反映）
+    }
   }catch(e){}
 }
 
