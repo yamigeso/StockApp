@@ -537,6 +537,23 @@ def get_cache_age_minutes():
         pass
     return 999
 
+def get_firebase_last_update():
+    """Firebaseのlast_updateだけ軽量取得（クロスインスタンス同期チェック用）"""
+    if _db is None:
+        return None
+    result = [None]
+    def _fetch():
+        try:
+            doc = _db.collection("cache").document("stock_data").get()
+            if doc.exists:
+                result[0] = doc.to_dict().get("last_update")
+        except Exception as e:
+            print(f"[FIREBASE] タイムスタンプ確認エラー: {e}", flush=True)
+    t = threading.Thread(target=_fetch, daemon=True)
+    t.start()
+    t.join(timeout=10)
+    return result[0]
+
 
 # ══════════════════════════════════════════════════════
 #  データ取得（バックグラウンド）
@@ -749,6 +766,13 @@ def scheduler_and_ping():
 
     while True:
         time.sleep(10 * 60)  # 10分待機
+
+        # ── Firebase との同期チェック（別インスタンスの更新を拾う）──
+        if not _cache["loading"]:
+            fb_ts = get_firebase_last_update()
+            if fb_ts and fb_ts != _cache.get("last_update"):
+                print(f"[SYNC] Firebaseに新しいデータ検出 ({fb_ts}) → メモリ更新", flush=True)
+                load_data()
 
         # データが35分以上古ければ更新
         age = get_cache_age_minutes()
