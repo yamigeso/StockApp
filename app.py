@@ -429,6 +429,7 @@ _cache = {
     "loading_since": 0,
     "charts": {},
 }
+_refresh_lock = threading.Lock()  # 二重起動防止ロック
 
 def init_firebase():
     """Firebase Admin SDK初期化"""
@@ -594,7 +595,9 @@ def get_firebase_last_update():
 # ══════════════════════════════════════════════════════
 def refresh_data():
     """yfinanceでデータ取得 → Firebase/ファイルに保存"""
-    if _cache["loading"]:
+    # ロックを取得できなければ既に実行中 → スキップ（レース条件防止）
+    if not _refresh_lock.acquire(blocking=False):
+        print("[REFRESH] 既に実行中のためスキップ", flush=True)
         return
     _cache["loading"] = True
     _cache["loading_since"] = time.time()
@@ -685,6 +688,7 @@ def refresh_data():
         import traceback; traceback.print_exc()
     finally:
         _cache["loading"] = False
+        _refresh_lock.release()  # ロック解放（次のリフレッシュを許可）
 
 
 # ══════════════════════════════════════════════════════
@@ -801,6 +805,12 @@ def api_status():
 @app.route("/api/force-refresh")
 def api_force_refresh():
     """強制リフレッシュ（管理用）"""
+    # 実行中の場合はロックを強制解放してから再起動
+    if _refresh_lock.locked():
+        try:
+            _refresh_lock.release()
+        except RuntimeError:
+            pass
     _cache["loading"] = False
     threading.Thread(target=refresh_data, daemon=True).start()
     return jsonify({"status": "started", "message": "強制リフレッシュ開始しました"})
