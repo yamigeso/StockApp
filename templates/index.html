@@ -352,18 +352,35 @@ function renderStocks(recs){
   const grid=document.getElementById('stocksGrid');
   let list=[];
   if(activeSector==='__all'){
-    for(const[sec,info]of Object.entries(recs))info.stocks.slice(0,3).forEach(s=>list.push({...s,sector:sec}));
+    // 全セクターの全銘柄を集めてスコア順（重複除去）
+    const seen=new Set();
+    for(const[sec,info]of Object.entries(recs)){
+      for(const s of info.stocks){
+        if(!seen.has(s.ticker)){seen.add(s.ticker);list.push({...s,sector:sec});}
+      }
+    }
     list.sort((a,b)=>b.score-a.score);
-  }else{list=(recs[activeSector]?.stocks||[]);}
+  }else{
+    list=(recs[activeSector]?.stocks||[]).map(s=>({...s,sector:activeSector}));
+  }
   list=filterByPrice(list);
   if(!list.length){grid.innerHTML='<div class="empty">該当銘柄なし（価格帯を変えてみてください）</div>';return;}
+  // 件数表示を更新
+  const secTitle=document.querySelector('.sec-title');
+  if(secTitle) secTitle.innerHTML=`🏆 おすすめ銘柄 <span style="font-size:12px;color:var(--accent);font-weight:normal;margin-left:8px">${list.length}件</span>`;
   grid.innerHTML=list.map((s,i)=>stockCard(s,i,activeSector==='__all')).join('');
 }
 
 function renderSummary(recs){
-  let total=0,buy=0;
-  for(const info of Object.values(recs))for(const s of info.stocks){total++;if(s.score>=5)buy++;}
-  document.getElementById('sumTotal').textContent=total;
+  // 全セクターの全銘柄をカウント（重複除去）
+  const seen=new Set();
+  let buy=0;
+  for(const info of Object.values(recs)){
+    for(const s of info.stocks){
+      if(!seen.has(s.ticker)){seen.add(s.ticker);if(s.score>=5)buy++;}
+    }
+  }
+  document.getElementById('sumTotal').textContent=seen.size;
   document.getElementById('sumBuy').textContent=buy;
   document.getElementById('sumSec').textContent=Object.keys(recs).length;
   document.getElementById('summaryBar').style.display='grid';

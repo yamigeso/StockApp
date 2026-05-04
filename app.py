@@ -423,8 +423,7 @@ CACHE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data_cach
 _db = None  # Firestore client（起動時に初期化）
 
 _cache = {
-    "recommendations": None,
-    "themes": None,
+    "stocks": {},       # {ticker: stock_data} — 全分析銘柄
     "last_update": None,
     "loading": False,
     "loading_since": 0,
@@ -448,79 +447,114 @@ def init_firebase():
     except Exception as e:
         print(f"[FIREBASE] 初期化失敗: {e}")
 
-def save_data(recs, themes, last_update):
-    """Firebase（優先）またはファイルにデータ保存。Firebaseは30秒タイムアウト付き。"""
+def save_stocks(stock_dict, last_update):
+    """全銘柄をFirestoreに1銘柄1ドキュメントで一括保存（バッチ書き込み）。"""
     if _db is not None:
         result = [False]
         def _fb_save():
             try:
-                _db.collection("cache").document("stock_data").set({
-                    "recommendations": json.dumps(recs, ensure_ascii=False),
-                    "themes": json.dumps(themes, ensure_ascii=False) if themes else "",
+                # Firestoreバッチ書き込み（最大500件 → 154銘柄でOK）
+                batch = _db.batch()
+                for ticker, data in stock_dict.items():
+                    doc_id = ticker.replace(".", "_")  # "7203.T" → "7203_T"
+                    ref = _db.collection("stocks").document(doc_id)
+                    batch.set(ref, {**data, "last_update": last_update})
+                # メタ情報（タイムスタンプ）を別ドキュメントに保存
+                meta_ref = _db.collection("meta").document("info")
+                batch.set(meta_ref, {
                     "last_update": last_update,
+                    "stock_count": len(stock_dict),
                 })
+                batch.commit()
                 result[0] = True
-                print(f"[FIREBASE] 保存完了: {last_update} ✓")
+                print(f"[FIREBASE] {len(stock_dict)}銘柄 一括保存完了: {last_update} ✓", flush=True)
             except Exception as e:
-                print(f"[FIREBASE] 保存失敗: {e}")
+                print(f"[FIREBASE] 保存失敗: {e}", flush=True)
         t = threading.Thread(target=_fb_save, daemon=True)
         t.start()
-        t.join(timeout=30)
+        t.join(timeout=60)
         if t.is_alive():
-            print("[FIREBASE] 保存タイムアウト（30秒）→ ファイルにフォールバック")
+            print("[FIREBASE] 保存タイムアウト（60秒）→ ファイルにフォールバック", flush=True)
         elif result[0]:
             return  # Firebase保存成功
     # ファイルフォールバック
     try:
         tmp = CACHE_FILE + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
-            json.dump({"recommendations": recs, "themes": themes, "last_update": last_update}, f, ensure_ascii=False)
+            json.dump({"stocks": stock_dict, "last_update": last_update}, f, ensure_ascii=False)
         os.replace(tmp, CACHE_FILE)
-        print(f"[FILE] 保存完了: {last_update} ✓")
+        print(f"[FILE] 保存完了: {last_update} ✓", flush=True)
     except Exception as e:
-        print(f"[FILE] 保存失敗: {e}")
+        print(f"[FILE] 保存失敗: {e}", flush=True)
 
-def load_data():
-    """Firebase（優先）またはファイルからデータ読み込み。Firebaseは20秒タイムアウト付き。"""
+def load_stocks():
+    """Firebaseから全銘柄を読み込み。Firebaseは30秒タイムアウト付き。"""
     if _db is not None:
         result = [None]
         def _fb_load():
             try:
-                doc = _db.collection("cache").document("stock_data").get()
-                if doc.exists:
-                    result[0] = doc.to_dict()
+                # 全銘柄ドキュメント取得
+                docs = list(_db.collection("stocks").get())
+                meta = _db.collection("meta").document("info").get()
+                stocks = {}
+                for doc in docs:
+                    d = doc.to_dict()
+                    ticker = d.get("ticker")
+                    if ticker:
+                        stocks[ticker] = d
+                last_update = meta.to_dict().get("last_update") if meta.exists else None
+                result[0] = {"stocks": stocks, "last_update": last_update}
+                print(f"[FIREBASE] {len(stocks)}銘柄 読み込み完了: {last_update} ✓", flush=True)
             except Exception as e:
-                print(f"[FIREBASE] 読み込みエラー: {e}")
+                print(f"[FIREBASE] 読み込みエラー: {e}", flush=True)
         t = threading.Thread(target=_fb_load, daemon=True)
         t.start()
-        t.join(timeout=20)
+        t.join(timeout=30)
         if t.is_alive():
-            print("[FIREBASE] 読み込みタイムアウト（20秒）→ ファイルにフォールバック")
-        elif result[0] is not None:
-            try:
-                d = result[0]
-                _cache["recommendations"] = json.loads(d["recommendations"])
-                _cache["themes"] = json.loads(d["themes"]) if d.get("themes") else None
-                _cache["last_update"] = d.get("last_update")
-                print(f"[FIREBASE] 読み込み完了: {_cache['last_update']} ✓")
-                return True
-            except Exception as e:
-                print(f"[FIREBASE] データ解析失敗: {e}")
+            print("[FIREBASE] 読み込みタイムアウト（30秒）→ ファイルにフォールバック", flush=True)
+        elif result[0] is not None and result[0]["stocks"]:
+            _cache["stocks"] = result[0]["stocks"]
+            _cache["last_update"] = result[0]["last_update"]
+            return True
         else:
-            print("[FIREBASE] ドキュメントなし or タイムアウト → ファイルにフォールバック")
+            print("[FIREBASE] データなし or タイムアウト → ファイルにフォールバック", flush=True)
     # ファイルフォールバック
     try:
         if os.path.exists(CACHE_FILE):
             with open(CACHE_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            _cache["recommendations"] = data.get("recommendations")
-            _cache["themes"] = data.get("themes")
+            # 新形式（stocks）と旧形式（recommendations）の両対応
+            if "stocks" in data:
+                _cache["stocks"] = data["stocks"]
             _cache["last_update"] = data.get("last_update")
-            print(f"[FILE] 読み込み完了: {_cache['last_update']} ✓")
+            print(f"[FILE] 読み込み完了: {_cache['last_update']} ({len(_cache['stocks'])}銘柄) ✓", flush=True)
             return True
     except Exception as e:
-        print(f"[FILE] 読み込み失敗: {e}")
+        print(f"[FILE] 読み込み失敗: {e}", flush=True)
     return False
+
+def compute_recommendations():
+    """メモリ内の全銘柄からセクター別おすすめを動的に生成"""
+    recs = {}
+    for sec, info in SECTORS.items():
+        results = [_cache["stocks"][t] for t in info["stocks"] if t in _cache["stocks"]]
+        recs[sec] = {
+            "icon": info["icon"],
+            "stocks": sorted(results, key=lambda x: x["score"], reverse=True),
+        }
+    return recs
+
+def compute_themes():
+    """メモリ内の全銘柄からテーマ別リストを動的に生成"""
+    themes = {}
+    for theme, info in THEMES.items():
+        results = [_cache["stocks"][t] for t in info["stocks"] if t in _cache["stocks"]]
+        themes[theme] = {
+            "icon": info["icon"],
+            "desc": info["desc"],
+            "stocks": sorted(results, key=lambda x: x["score"], reverse=True),
+        }
+    return themes
 
 def get_cache_age_minutes():
     """キャッシュの経過時間（分）。不明な場合は999"""
@@ -538,13 +572,13 @@ def get_cache_age_minutes():
     return 999
 
 def get_firebase_last_update():
-    """Firebaseのlast_updateだけ軽量取得（クロスインスタンス同期チェック用）"""
+    """meta/info からlast_updateのみ軽量取得（クロスインスタンス同期チェック用）"""
     if _db is None:
         return None
     result = [None]
     def _fetch():
         try:
-            doc = _db.collection("cache").document("stock_data").get()
+            doc = _db.collection("meta").document("info").get()
             if doc.exists:
                 result[0] = doc.to_dict().get("last_update")
         except Exception as e:
@@ -605,18 +639,12 @@ def refresh_data():
             print(f"[REFRESH] 銘柄数不足({len(stock_results)})。保存スキップ", flush=True)
             return
 
-        # セクター振り分け
-        recs = {}
-        for sec, info in SECTORS.items():
-            results = [stock_results[t] for t in info["stocks"] if t in stock_results]
-            recs[sec] = {"icon": info["icon"],
-                         "stocks": sorted(results, key=lambda x: x["score"], reverse=True)}
-        _cache["recommendations"] = recs
-        _cache["last_update"] = datetime.now(JST).strftime("%Y-%m-%d %H:%M JST")
-        print(f"[REFRESH] ✓ 完了: {_cache['last_update']}", flush=True)
+        # セクター情報を各銘柄に付与
+        for ticker in stock_results:
+            sectors = all_tasks.get(ticker, (None, []))[1]
+            stock_results[ticker]["sectors"] = sectors
 
-        # テーマ処理
-        themes = None
+        # テーマ銘柄（セクターにない銘柄）を追加取得
         try:
             all_theme_tickers = {}
             for theme, info in THEMES.items():
@@ -635,22 +663,22 @@ def refresh_data():
                             except Exception:
                                 r = None
                             if r:
+                                r["sectors"] = []  # テーマ専用銘柄
                                 stock_results[futures2[future]] = r
                     except Exception:
                         pass
                 finally:
                     ex2.shutdown(wait=False, cancel_futures=True)
-            themes = {}
-            for theme, info in THEMES.items():
-                results = [stock_results[t] for t in info["stocks"] if t in stock_results]
-                themes[theme] = {"icon": info["icon"], "desc": info["desc"],
-                                 "stocks": sorted(results, key=lambda x: x["score"], reverse=True)}
-            _cache["themes"] = themes
         except Exception as te:
-            print(f"[REFRESH] テーマ処理エラー（無視）: {te}")
+            print(f"[REFRESH] テーマ銘柄追加取得エラー（無視）: {te}", flush=True)
 
-        # 保存（Firebase or ファイル）
-        save_data(_cache["recommendations"], _cache["themes"], _cache["last_update"])
+        # 全銘柄をメモリキャッシュに格納
+        _cache["stocks"] = stock_results
+        _cache["last_update"] = datetime.now(JST).strftime("%Y-%m-%d %H:%M JST")
+        print(f"[REFRESH] ✓ 完了: {_cache['last_update']} / 全{len(stock_results)}銘柄", flush=True)
+
+        # 保存（Firebase 個別ドキュメント or ファイル）
+        save_stocks(_cache["stocks"], _cache["last_update"])
 
     except Exception as e:
         print(f"[REFRESH] ERROR: {e}")
@@ -668,21 +696,23 @@ def index():
 
 @app.route("/api/data")
 def api_data():
-    """データ読み取り専用。ただしデータが全くない場合は自己修復でリフレッシュ起動。"""
+    """データ読み取り専用。全銘柄からセクター別おすすめ＋テーマを動的生成して返す。"""
     # loadingが5分以上続いている場合はスタックと判断してリセット
     if _cache["loading"] and (time.time() - _cache["loading_since"]) > 300:
         print("[WARN] loading が5分以上継続 → 強制リセット", flush=True)
         _cache["loading"] = False
 
     # データなし・ロードもしていない → バックグラウンドで取得開始（自己修復）
-    if not _cache["recommendations"] and not _cache["loading"]:
+    if not _cache["stocks"] and not _cache["loading"]:
         print("[INFO] データなし → バックグラウンドリフレッシュ開始", flush=True)
         threading.Thread(target=refresh_data, daemon=True).start()
 
-    if _cache["recommendations"]:
+    if _cache["stocks"]:
+        recs = compute_recommendations()
+        themes = compute_themes()
         resp = make_response(jsonify({
-            "recommendations": _cache["recommendations"],
-            "themes": _cache["themes"],
+            "recommendations": recs,
+            "themes": themes,
             "last_update": _cache["last_update"],
             "loading": _cache["loading"],
         }))
@@ -695,13 +725,73 @@ def api_data():
     resp.headers["Expires"] = "0"
     return resp
 
+@app.route("/api/stocks")
+def api_stocks():
+    """全銘柄クエリAPI。フィルター・ソートに対応。
+    クエリパラメータ:
+      sector    - セクター名（例: AI・半導体）
+      price_min - 最低価格
+      price_max - 最高価格
+      score_min - 最低スコア
+      sort      - ソート順: score（デフォルト）/price_asc/price_desc/return_1m/return_3m/rsi_low
+      limit     - 最大件数（デフォルト: 全件）
+    """
+    from flask import request as req
+    stocks = list(_cache["stocks"].values())
+
+    # フィルター
+    sector = req.args.get("sector")
+    if sector:
+        sector_tickers = set(SECTORS.get(sector, {}).get("stocks", {}).keys())
+        stocks = [s for s in stocks if s.get("ticker") in sector_tickers]
+
+    price_min = req.args.get("price_min", type=float)
+    price_max = req.args.get("price_max", type=float)
+    if price_min is not None:
+        stocks = [s for s in stocks if (s.get("current_price") or 0) >= price_min]
+    if price_max is not None:
+        stocks = [s for s in stocks if (s.get("current_price") or 0) < price_max]
+
+    score_min = req.args.get("score_min", type=int)
+    if score_min is not None:
+        stocks = [s for s in stocks if (s.get("score") or 0) >= score_min]
+
+    # ソート
+    sort_by = req.args.get("sort", "score")
+    if sort_by == "price_asc":
+        stocks.sort(key=lambda s: s.get("current_price") or 0)
+    elif sort_by == "price_desc":
+        stocks.sort(key=lambda s: s.get("current_price") or 0, reverse=True)
+    elif sort_by == "return_1m":
+        stocks.sort(key=lambda s: s.get("return_1m") or 0, reverse=True)
+    elif sort_by == "return_3m":
+        stocks.sort(key=lambda s: s.get("return_3m") or 0, reverse=True)
+    elif sort_by == "rsi_low":
+        stocks.sort(key=lambda s: s.get("rsi") or 100)
+    else:  # score（デフォルト）
+        stocks.sort(key=lambda s: s.get("score") or 0, reverse=True)
+
+    limit = req.args.get("limit", type=int)
+    if limit:
+        stocks = stocks[:limit]
+
+    resp = make_response(jsonify({
+        "stocks": stocks,
+        "total": len(stocks),
+        "last_update": _cache["last_update"],
+        "loading": _cache["loading"],
+    }))
+    resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    resp.headers["Pragma"] = "no-cache"
+    resp.headers["Expires"] = "0"
+    return resp
+
 @app.route("/api/status")
 def api_status():
-    has_recs = _cache["recommendations"] is not None
-    stock_count = sum(len(v["stocks"]) for v in _cache["recommendations"].values()) if has_recs else 0
+    has_stocks = bool(_cache["stocks"])
     return jsonify({
-        "has_data": has_recs,
-        "stock_count": stock_count,
+        "has_data": has_stocks,
+        "stock_count": len(_cache["stocks"]),
         "last_update": _cache["last_update"],
         "is_loading": _cache["loading"],
         "cache_age_min": round(get_cache_age_minutes(), 1),
@@ -772,7 +862,7 @@ def scheduler_and_ping():
             fb_ts = get_firebase_last_update()
             if fb_ts and fb_ts != _cache.get("last_update"):
                 print(f"[SYNC] Firebaseに新しいデータ検出 ({fb_ts}) → メモリ更新", flush=True)
-                load_data()
+                load_stocks()
 
         # データが35分以上古ければ更新
         age = get_cache_age_minutes()
@@ -804,14 +894,14 @@ def startup():
     # Firebase初期化
     init_firebase()
 
-    # データ読み込み（Firebase → ファイル）
-    has_cache = load_data()
+    # データ読み込み（Firebase 個別ドキュメント → ファイル）
+    has_cache = load_stocks()
     if not has_cache:
         print("[STARTUP] データなし → 初回データ取得を開始")
         threading.Thread(target=refresh_data, daemon=True).start()
     else:
         age = get_cache_age_minutes()
-        print(f"[STARTUP] キャッシュ年齢: {age:.0f}分")
+        print(f"[STARTUP] キャッシュ年齢: {age:.0f}分 / {len(_cache['stocks'])}銘柄")
         if age > 60:
             print("[STARTUP] 古いキャッシュ → バックグラウンドで更新開始")
             threading.Thread(target=refresh_data, daemon=True).start()
