@@ -32,11 +32,18 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI','Hiragino San
 .sumcard .num{font-size:26px;font-weight:800}.sumcard .lbl{font-size:11px;color:var(--text2)}
 .green-num{color:var(--green)}
 /* FILTERS */
-.mfilter,.stabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.mfilter,.stabs,.pricefilter{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
 .mfbtn{padding:4px 12px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text2);font-size:12px;cursor:pointer;transition:.2s}
 .mfbtn:hover{border-color:var(--accent)}.mfbtn.active{background:var(--accent);border-color:var(--accent);color:#0d1117;font-weight:700}
 .stab{padding:7px 14px;border-radius:20px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);cursor:pointer;font-size:13px;font-weight:500;transition:.2s}
 .stab:hover{border-color:var(--accent);color:var(--accent)}.stab.active{background:var(--accent);border-color:var(--accent);color:#0d1117;font-weight:700}
+/* PRICE FILTER */
+.pfbtn{padding:5px 12px;border-radius:20px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);cursor:pointer;font-size:12px;font-weight:500;transition:.2s;white-space:nowrap}
+.pfbtn:hover{border-color:var(--yellow);color:var(--yellow)}.pfbtn.active{background:var(--yellow);border-color:var(--yellow);color:#0d1117;font-weight:700}
+/* SCROLL TO TOP */
+.scroll-top{position:fixed;bottom:24px;right:20px;width:44px;height:44px;border-radius:50%;background:var(--accent);border:none;color:#0d1117;font-size:20px;cursor:pointer;display:none;align-items:center;justify-content:center;box-shadow:0 4px 16px rgba(0,0,0,.5);z-index:300;transition:.2s;line-height:1}
+.scroll-top:hover{background:#79bcff;transform:translateY(-2px)}
+.scroll-top.visible{display:flex}
 /* CARDS */
 .stocks-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}
 .scard{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:16px;position:relative;overflow:hidden;transition:.2s;cursor:pointer}
@@ -129,6 +136,11 @@ select.theme-dd:focus{outline:none;border-color:var(--accent)}
   .stabs{flex-wrap:nowrap;overflow-x:auto;padding-bottom:6px;-webkit-overflow-scrolling:touch}
   .stabs::-webkit-scrollbar{height:3px}
   .stab{white-space:nowrap;padding:5px 10px;font-size:12px}
+  /* PRICE FILTER: 横スクロール */
+  .pricefilter{flex-wrap:nowrap;overflow-x:auto;padding-bottom:4px;-webkit-overflow-scrolling:touch}
+  .pricefilter::-webkit-scrollbar{height:3px}
+  /* SCROLL TO TOP: モバイルでより下に */
+  .scroll-top{bottom:16px;right:14px;width:40px;height:40px;font-size:18px}
 
   /* CARDS: 1カラム */
   .stocks-grid{grid-template-columns:1fr}
@@ -189,6 +201,14 @@ select.theme-dd:focus{outline:none;border-color:var(--accent)}
         <div class="sumcard"><div class="num" id="sumSec">-</div><div class="lbl">セクター数</div></div>
       </div>
       <div class="stabs" id="sectorTabs"></div>
+      <div class="pricefilter" id="priceFilter">
+        <button class="pfbtn active" onclick="setPrice('__all')">💴 すべて</button>
+        <button class="pfbtn" onclick="setPrice('u500')">〜500円</button>
+        <button class="pfbtn" onclick="setPrice('u1000')">500〜1,000円</button>
+        <button class="pfbtn" onclick="setPrice('u3000')">1,000〜3,000円</button>
+        <button class="pfbtn" onclick="setPrice('u10000')">3,000〜10,000円</button>
+        <button class="pfbtn" onclick="setPrice('over10000')">10,000円〜</button>
+      </div>
       <div class="sec-title">🏆 おすすめ銘柄</div>
       <div class="stocks-grid" id="stocksGrid"><div class="empty">データ読み込み中...</div></div>
     </main>
@@ -209,6 +229,9 @@ select.theme-dd:focus{outline:none;border-color:var(--accent)}
     <div class="stocks-grid" id="themeGrid"><div class="empty">テーマを選択してください</div></div>
   </div>
 </div>
+
+<!-- SCROLL TO TOP -->
+<button class="scroll-top" id="scrollTopBtn" onclick="scrollToTop()" title="ページ上部へ">↑</button>
 
 <!-- CHART MODAL -->
 <div class="modal-overlay" id="modalOverlay" onclick="closeModal(event)">
@@ -238,8 +261,18 @@ select.theme-dd:focus{outline:none;border-color:var(--accent)}
 </div>
 
 <script>
-let allData=null, activeSector='__all';
+let allData=null, activeSector='__all', activePrice='__all';
 let priceChart=null, volChart=null;
+
+// 価格レンジ定義
+const PRICE_RANGES={
+  '__all':  {min:0,       max:Infinity},
+  'u500':   {min:0,       max:500},
+  'u1000':  {min:500,     max:1000},
+  'u3000':  {min:1000,    max:3000},
+  'u10000': {min:3000,    max:10000},
+  'over10000':{min:10000, max:Infinity},
+};
 
 function showPage(id){
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
@@ -263,6 +296,13 @@ function renderSectorTabs(recs){
     .concat(sectors.map(s=>`<button class="stab${s===activeSector?' active':''}" onclick="setSector('${s}')">${recs[s].icon} ${s}</button>`)).join('');
 }
 function setSector(s){activeSector=s;renderSectorTabs(allData.recommendations);renderStocks(allData.recommendations);}
+
+function setPrice(p){
+  activePrice=p;
+  document.querySelectorAll('.pfbtn').forEach(b=>b.classList.remove('active'));
+  event.currentTarget.classList.add('active');
+  renderStocks(allData.recommendations);
+}
 
 
 // 株データをインデックスで管理（onclick の JSON埋め込み問題を回避）
@@ -303,6 +343,11 @@ function stockCard(s,i,showSec){
   </div>`;
 }
 
+function filterByPrice(list){
+  const {min,max}=PRICE_RANGES[activePrice]||PRICE_RANGES['__all'];
+  return list.filter(s=>{const p=s.current_price||0;return p>=min&&p<max;});
+}
+
 function renderStocks(recs){
   const grid=document.getElementById('stocksGrid');
   let list=[];
@@ -310,7 +355,8 @@ function renderStocks(recs){
     for(const[sec,info]of Object.entries(recs))info.stocks.slice(0,3).forEach(s=>list.push({...s,sector:sec}));
     list.sort((a,b)=>b.score-a.score);
   }else{list=(recs[activeSector]?.stocks||[]);}
-  if(!list.length){grid.innerHTML='<div class="empty">該当銘柄なし</div>';return;}
+  list=filterByPrice(list);
+  if(!list.length){grid.innerHTML='<div class="empty">該当銘柄なし（価格帯を変えてみてください）</div>';return;}
   grid.innerHTML=list.map((s,i)=>stockCard(s,i,activeSector==='__all')).join('');
 }
 
@@ -490,6 +536,30 @@ async function silentRefresh(){
     }
   }catch(e){}
 }
+
+// ─── スクロールトップボタン ───
+function scrollToTop(){
+  // モバイル（p1-layout が height:auto の場合）はwindow、デスクトップは p1-layout
+  const layout=document.querySelector('.p1-layout');
+  if(layout&&layout.scrollHeight>layout.clientHeight&&window.getComputedStyle(layout).overflowY!=='visible'){
+    layout.scrollTo({top:0,behavior:'smooth'});
+  }else{
+    window.scrollTo({top:0,behavior:'smooth'});
+  }
+}
+function updateScrollBtn(){
+  const btn=document.getElementById('scrollTopBtn');
+  if(!btn)return;
+  const layout=document.querySelector('.p1-layout');
+  const scrolled=(layout&&layout.scrollTop>200)||(window.scrollY>200);
+  btn.classList.toggle('visible',scrolled);
+}
+// デスクトップ（p1-layout内スクロール）とモバイル（window）両対応
+document.addEventListener('DOMContentLoaded',()=>{
+  const layout=document.querySelector('.p1-layout');
+  if(layout) layout.addEventListener('scroll',updateScrollBtn,{passive:true});
+});
+window.addEventListener('scroll',updateScrollBtn,{passive:true});
 
 initialLoad();
 setInterval(silentRefresh, 10*60*1000); // 10分ごと
