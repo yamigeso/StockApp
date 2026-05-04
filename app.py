@@ -449,18 +449,27 @@ def init_firebase():
         print(f"[FIREBASE] 初期化失敗: {e}")
 
 def save_data(recs, themes, last_update):
-    """Firebase（優先）またはファイルにデータ保存"""
+    """Firebase（優先）またはファイルにデータ保存。Firebaseは30秒タイムアウト付き。"""
     if _db is not None:
-        try:
-            _db.collection("cache").document("stock_data").set({
-                "recommendations": json.dumps(recs, ensure_ascii=False),
-                "themes": json.dumps(themes, ensure_ascii=False) if themes else "",
-                "last_update": last_update,
-            })
-            print(f"[FIREBASE] 保存完了: {last_update} ✓")
-            return
-        except Exception as e:
-            print(f"[FIREBASE] 保存失敗: {e} → ファイルにフォールバック")
+        result = [False]
+        def _fb_save():
+            try:
+                _db.collection("cache").document("stock_data").set({
+                    "recommendations": json.dumps(recs, ensure_ascii=False),
+                    "themes": json.dumps(themes, ensure_ascii=False) if themes else "",
+                    "last_update": last_update,
+                })
+                result[0] = True
+                print(f"[FIREBASE] 保存完了: {last_update} ✓")
+            except Exception as e:
+                print(f"[FIREBASE] 保存失敗: {e}")
+        t = threading.Thread(target=_fb_save, daemon=True)
+        t.start()
+        t.join(timeout=30)
+        if t.is_alive():
+            print("[FIREBASE] 保存タイムアウト（30秒）→ ファイルにフォールバック")
+        elif result[0]:
+            return  # Firebase保存成功
     # ファイルフォールバック
     try:
         tmp = CACHE_FILE + ".tmp"
@@ -472,19 +481,33 @@ def save_data(recs, themes, last_update):
         print(f"[FILE] 保存失敗: {e}")
 
 def load_data():
-    """Firebase（優先）またはファイルからデータ読み込み"""
+    """Firebase（優先）またはファイルからデータ読み込み。Firebaseは20秒タイムアウト付き。"""
     if _db is not None:
-        try:
-            doc = _db.collection("cache").document("stock_data").get()
-            if doc.exists:
-                d = doc.to_dict()
+        result = [None]
+        def _fb_load():
+            try:
+                doc = _db.collection("cache").document("stock_data").get()
+                if doc.exists:
+                    result[0] = doc.to_dict()
+            except Exception as e:
+                print(f"[FIREBASE] 読み込みエラー: {e}")
+        t = threading.Thread(target=_fb_load, daemon=True)
+        t.start()
+        t.join(timeout=20)
+        if t.is_alive():
+            print("[FIREBASE] 読み込みタイムアウト（20秒）→ ファイルにフォールバック")
+        elif result[0] is not None:
+            try:
+                d = result[0]
                 _cache["recommendations"] = json.loads(d["recommendations"])
                 _cache["themes"] = json.loads(d["themes"]) if d.get("themes") else None
                 _cache["last_update"] = d.get("last_update")
                 print(f"[FIREBASE] 読み込み完了: {_cache['last_update']} ✓")
                 return True
-        except Exception as e:
-            print(f"[FIREBASE] 読み込み失敗: {e} → ファイルにフォールバック")
+            except Exception as e:
+                print(f"[FIREBASE] データ解析失敗: {e}")
+        else:
+            print("[FIREBASE] ドキュメントなし or タイムアウト → ファイルにフォールバック")
     # ファイルフォールバック
     try:
         if os.path.exists(CACHE_FILE):
@@ -628,7 +651,17 @@ def index():
 
 @app.route("/api/data")
 def api_data():
-    """クライアントはここでデータを読むだけ。更新はサーバー側が自動実施。"""
+    """データ読み取り専用。ただしデータが全くない場合は自己修復でリフレッシュ起動。"""
+    # loadingが5分以上続いている場合はスタックと判断してリセット
+    if _cache["loading"] and (time.time() - _cache["loading_since"]) > 300:
+        print("[WARN] loading が5分以上継続 → 強制リセット", flush=True)
+        _cache["loading"] = False
+
+    # データなし・ロードもしていない → バックグラウンドで取得開始（自己修復）
+    if not _cache["recommendations"] and not _cache["loading"]:
+        print("[INFO] データなし → バックグラウンドリフレッシュ開始", flush=True)
+        threading.Thread(target=refresh_data, daemon=True).start()
+
     if _cache["recommendations"]:
         resp = make_response(jsonify({
             "recommendations": _cache["recommendations"],
