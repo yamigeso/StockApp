@@ -21,6 +21,7 @@ import json
 import os
 import time
 import urllib.request
+import gc
 
 JST = timezone(timedelta(hours=9))
 app = Flask(__name__)
@@ -427,7 +428,11 @@ _cache = {
     "last_update": None,
     "loading": False,
     "loading_since": 0,
-    "charts": {},
+    "charts": {},        # チャートキャッシュ（最大50銘柄）
+    # 計算済みキャッシュ（毎リクエストでの再計算を避ける）
+    "_recs": None,
+    "_themes": None,
+    "_computed_at": None,
 }
 _refresh_lock = threading.Lock()  # 二重起動防止ロック
 
@@ -535,7 +540,9 @@ def load_stocks():
     return False
 
 def compute_recommendations():
-    """メモリ内の全銘柄からセクター別おすすめを動的に生成"""
+    """メモリ内の全銘柄からセクター別おすすめを生成（last_update変化時のみ再計算）"""
+    if _cache["_recs"] is not None and _cache["_computed_at"] == _cache["last_update"]:
+        return _cache["_recs"]
     recs = {}
     for sec, info in SECTORS.items():
         results = [_cache["stocks"][t] for t in info["stocks"] if t in _cache["stocks"]]
@@ -543,10 +550,14 @@ def compute_recommendations():
             "icon": info["icon"],
             "stocks": sorted(results, key=lambda x: x["score"], reverse=True),
         }
+    _cache["_recs"] = recs
+    _cache["_computed_at"] = _cache["last_update"]
     return recs
 
 def compute_themes():
-    """メモリ内の全銘柄からテーマ別リストを動的に生成"""
+    """メモリ内の全銘柄からテーマ別リストを生成（last_update変化時のみ再計算）"""
+    if _cache["_themes"] is not None and _cache["_computed_at"] == _cache["last_update"]:
+        return _cache["_themes"]
     themes = {}
     for theme, info in THEMES.items():
         results = [_cache["stocks"][t] for t in info["stocks"] if t in _cache["stocks"]]
@@ -555,6 +566,7 @@ def compute_themes():
             "desc": info["desc"],
             "stocks": sorted(results, key=lambda x: x["score"], reverse=True),
         }
+    _cache["_themes"] = themes
     return themes
 
 def get_cache_age_minutes():
@@ -615,7 +627,7 @@ def refresh_data():
         # 並列取得（5スレッド・120秒上限）
         stock_results = {}
         done = 0
-        ex = ThreadPoolExecutor(max_workers=5)
+        ex = ThreadPoolExecutor(max_workers=3)  # メモリ節約（同時3銘柄まで）
         try:
             futures = {ex.submit(analyze_stock, t, name): t for t, (name, _) in all_tasks.items()}
             try:
@@ -675,9 +687,12 @@ def refresh_data():
         except Exception as te:
             print(f"[REFRESH] テーマ銘柄追加取得エラー（無視）: {te}", flush=True)
 
-        # 全銘柄をメモリキャッシュに格納
+        # 全銘柄をメモリキャッシュに格納（計算済みキャッシュを無効化）
         _cache["stocks"] = stock_results
         _cache["last_update"] = datetime.now(JST).strftime("%Y-%m-%d %H:%M JST")
+        _cache["_recs"] = None    # 再計算を促す
+        _cache["_themes"] = None
+        _cache["_computed_at"] = None
         print(f"[REFRESH] ✓ 完了: {_cache['last_update']} / 全{len(stock_results)}銘柄", flush=True)
 
         # 保存（Firebase 個別ドキュメント or ファイル）
@@ -689,6 +704,7 @@ def refresh_data():
     finally:
         _cache["loading"] = False
         _refresh_lock.release()  # ロック解放（次のリフレッシュを許可）
+        gc.collect()             # 明示的GC（pandas DataFrameの残骸を解放）
 
 
 # ══════════════════════════════════════════════════════
@@ -793,6 +809,13 @@ def api_stocks():
 @app.route("/api/status")
 def api_status():
     has_stocks = bool(_cache["stocks"])
+    # メモリ使用量（MB）
+    mem_mb = None
+    try:
+        import resource
+        mem_mb = round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024, 1)
+    except Exception:
+        pass
     return jsonify({
         "has_data": has_stocks,
         "stock_count": len(_cache["stocks"]),
@@ -800,6 +823,8 @@ def api_status():
         "is_loading": _cache["loading"],
         "cache_age_min": round(get_cache_age_minutes(), 1),
         "firebase": _db is not None,
+        "chart_cache": len(_cache["charts"]),
+        "memory_mb": mem_mb,
     })
 
 @app.route("/api/force-refresh")
@@ -849,6 +874,10 @@ def api_chart(ticker):
              "open": round(float(r["Open"]), 0), "high": round(float(r["High"]), 0),
              "low": round(float(r["Low"]), 0), "close": round(float(r["Close"]), 0),
              "volume": int(r["Volume"])} for idx, r in hist.iterrows()]
+    # チャートキャッシュを50件上限に（古いものから削除）
+    if len(_cache["charts"]) >= 50:
+        oldest = min(_cache["charts"], key=lambda k: _cache["charts"][k]["ts"])
+        del _cache["charts"][oldest]
     _cache["charts"][ticker] = {"data": data, "ts": time.time()}
     return jsonify({"ticker": ticker, "data": data})
 
