@@ -722,10 +722,7 @@ def api_data():
         print("[WARN] loading が5分以上継続 → 強制リセット", flush=True)
         _cache["loading"] = False
 
-    # データなし・ロードもしていない → バックグラウンドで取得開始（自己修復）
-    if not _cache["stocks"] and not _cache["loading"]:
-        print("[INFO] データなし → バックグラウンドリフレッシュ開始", flush=True)
-        threading.Thread(target=refresh_data, daemon=True).start()
+    # データなしの場合はエラーレスポンスを返す（更新はボタンから）
 
     if _cache["stocks"]:
         recs = compute_recommendations()
@@ -886,7 +883,8 @@ def api_chart(ticker):
 #  バックグラウンドスレッド（自己ping + 自動更新）
 # ══════════════════════════════════════════════════════
 def scheduler_and_ping():
-    """10分ごとに自己ping（Renderスリープ防止）+ データが古ければ自動更新"""
+    """10分ごとに自己ping（Renderスリープ防止）+ Firebase同期チェック。
+    データ更新は手動ボタン（/api/force-refresh）からのみ実行。"""
     url = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
     if url:
         print(f"[PING] 自己ping設定: {url}/api/data")
@@ -896,21 +894,15 @@ def scheduler_and_ping():
     while True:
         time.sleep(10 * 60)  # 10分待機
 
-        # ── Firebase との同期チェック（別インスタンスの更新を拾う）──
+        # ── Firebase との同期チェック（別デバイスからの更新を拾う）──
         if not _cache["loading"]:
             fb_ts = get_firebase_last_update()
             if fb_ts and fb_ts != _cache.get("last_update"):
                 print(f"[SYNC] Firebaseに新しいデータ検出 ({fb_ts}) → メモリ更新", flush=True)
                 load_stocks()
-
-        # データが35分以上古ければ更新
-        age = get_cache_age_minutes()
-        if age > 35 and not _cache["loading"]:
-            print(f"[SCHEDULER] データが{age:.0f}分前 → バックグラウンド更新開始", flush=True)
-            threading.Thread(target=refresh_data, daemon=True).start()
-        else:
-            status = "更新中" if _cache["loading"] else f"{age:.0f}分前"
-            print(f"[SCHEDULER] データ状態: {status}", flush=True)
+            else:
+                age = get_cache_age_minutes()
+                print(f"[PING] データ状態: {age:.0f}分前", flush=True)
 
         # 自己ping（Renderスリープ防止）
         if url:
@@ -934,18 +926,13 @@ def startup():
     init_firebase()
 
     # データ読み込み（Firebase 個別ドキュメント → ファイル）
+    # ※ データ更新は手動ボタンからのみ。起動時は保存済みデータを使う。
     has_cache = load_stocks()
     if not has_cache:
-        print("[STARTUP] データなし → 初回データ取得を開始")
-        threading.Thread(target=refresh_data, daemon=True).start()
+        print("[STARTUP] データなし → ユーザーが更新ボタンを押すまで待機")
     else:
         age = get_cache_age_minutes()
-        print(f"[STARTUP] キャッシュ年齢: {age:.0f}分 / {len(_cache['stocks'])}銘柄")
-        if age > 60:
-            print("[STARTUP] 古いキャッシュ → バックグラウンドで更新開始")
-            threading.Thread(target=refresh_data, daemon=True).start()
-        else:
-            print(f"[STARTUP] 有効なキャッシュ: {_cache['last_update']}")
+        print(f"[STARTUP] キャッシュ読み込み完了: {_cache['last_update']} ({age:.0f}分前 / {len(_cache['stocks'])}銘柄)")
 
     # 自己ping + 自動更新スレッド開始
     threading.Thread(target=scheduler_and_ping, daemon=True).start()
