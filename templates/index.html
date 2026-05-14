@@ -18,6 +18,7 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI','Hiragino San
 .nav-tab.active{background:var(--accent);color:#0d1117}
 .nav-right{display:flex;align-items:center;gap:10px}
 .last-upd{font-size:11px;color:var(--text2)}
+.last-upd-mobile{display:none}
 /* UPDATE BUTTON */
 .upd-btn{display:flex;align-items:center;gap:6px;padding:7px 14px;border-radius:8px;border:1px solid var(--accent);background:transparent;color:var(--accent);font-size:13px;font-weight:700;cursor:pointer;transition:.2s;white-space:nowrap}
 .upd-btn:hover:not(:disabled){background:var(--accent);color:#0d1117}
@@ -121,13 +122,14 @@ select.theme-dd:focus{outline:none;border-color:var(--accent)}
 
 /* ===== MOBILE RESPONSIVE ===== */
 @media(max-width:768px){
-  /* NAV */
-  .nav{padding:0 12px;height:auto;min-height:52px;flex-wrap:wrap;gap:6px;padding-top:8px;padding-bottom:8px}
-  .nav-logo{font-size:15px}
-  .nav-tabs{gap:2px}
+  /* NAV: 2行レイアウト（1行目=ロゴ+右側, 2行目=タブ） */
+  .nav{padding:8px 12px;height:auto;min-height:auto;flex-wrap:wrap;gap:0;align-items:center}
+  .nav-logo{order:1;flex:1;font-size:15px}
+  .nav-right{order:2;flex-shrink:0;gap:6px}
+  .nav-tabs{order:3;width:100%;margin-top:7px;gap:2px}
   .nav-tab{padding:6px 10px;font-size:12px}
-  .nav-right{gap:6px}
   .last-upd{display:none}
+  .last-upd-mobile{display:flex;align-items:center;font-size:10px;color:var(--text2);white-space:nowrap;background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:3px 7px;gap:3px}
   .upd-btn{padding:6px 10px;font-size:12px;gap:4px}
   .upd-icon{font-size:13px}
 
@@ -177,6 +179,7 @@ select.theme-dd:focus{outline:none;border-color:var(--accent)}
 @media(max-width:400px){
   .nav-logo{font-size:13px}
   .nav-tab{padding:5px 8px;font-size:11px}
+  .last-upd-mobile{font-size:9px;padding:2px 5px}
   .summary{grid-template-columns:repeat(3,1fr)}
 }
 </style>
@@ -197,6 +200,7 @@ select.theme-dd:focus{outline:none;border-color:var(--accent)}
   </div>
   <div class="nav-right">
     <span class="last-upd" id="lastUpd"></span>
+    <span class="last-upd-mobile" id="lastUpdMobile"></span>
     <button class="upd-btn" id="updBtn" onclick="manualRefresh()">
       <span class="upd-icon" id="updIcon">🔄</span>
       <span id="updLabel">更新</span>
@@ -294,6 +298,7 @@ function showPage(id){
 }
 
 function fmtTime(u){if(!u)return'';const d=new Date(u*1000),now=new Date(),m=(now-d)/60000;if(m<60)return Math.floor(m)+'分前';if(m<1440)return Math.floor(m/60)+'時間前';return d.toLocaleDateString('ja-JP');}
+function fmtUpdShort(s){if(!s)return'';const m=s.match(/\d{4}-(\d{2})-(\d{2})\s+(\d{2}:\d{2})/);return m?`${parseInt(m[1])}/${parseInt(m[2])} ${m[3]}`:''}
 function fmtPrice(p){return '¥'+Math.round(p).toLocaleString('ja-JP');}
 function rClass(v){return v>0?'rpos':v<0?'rneg':'rneu';}
 function scClass(s){return s>=8?'sc-hi':s>=4?'sc-md':'sc-lo';}
@@ -482,6 +487,8 @@ function renderAll(data){
   const updLabel = data.loading ? `更新: ${data.last_update} 🔄` : `更新: ${data.last_update}`;
   lu.textContent = data.last_update ? updLabel : '';
   lu.dataset.ts = data.last_update || '';
+  const luM = document.getElementById('lastUpdMobile');
+  if(luM) luM.textContent = data.last_update ? (data.loading ? '🔄 '+fmtUpdShort(data.last_update) : '🕐 '+fmtUpdShort(data.last_update)) : '';
   // おすすめ株（セクタータブ＋グリッド＋サマリー）
   renderSectorTabs(data.recommendations);
   renderStocks(data.recommendations);
@@ -560,6 +567,8 @@ async function silentRefresh(){
     if(data.last_update){
       lu.textContent = data.loading ? `更新: ${data.last_update} 🔄` : `更新: ${data.last_update}`;
       lu.dataset.ts = data.last_update;
+      const luM = document.getElementById('lastUpdMobile');
+      if(luM) luM.textContent = data.loading ? '🔄 '+fmtUpdShort(data.last_update) : '🕐 '+fmtUpdShort(data.last_update);
     }
     if(newTs && newTs !== curTs){
       location.reload(); // データが変わったらページ全体をリロード（確実に反映）
